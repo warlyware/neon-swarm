@@ -1,4 +1,9 @@
 import * as THREE from "three";
+import "@fontsource/chakra-petch/latin-400.css";
+import "@fontsource/chakra-petch/latin-600.css";
+import "@fontsource/chakra-petch/latin-700.css";
+import "@fontsource/orbitron/latin-700.css";
+import "@fontsource/orbitron/latin-900.css";
 import "./style.css";
 
 const canvas = document.querySelector("#game");
