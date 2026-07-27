@@ -1,0 +1,234 @@
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Orbitron:wght@700;900&display=swap');
+
+:root {
+  font-family: "Chakra Petch", sans-serif;
+  color: #fff;
+  background: #05030d;
+  font-synthesis: none;
+  --cyan: #23e8ff;
+  --pink: #ff2da8;
+  --violet: #8754ff;
+  --yellow: #ffe66d;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #game-shell {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body { background: #05030d; }
+
+#game-shell {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(100, 40, 180, .22), transparent 38%),
+    #05030d;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#hud {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+  padding: 24px clamp(20px, 4vw, 64px);
+  pointer-events: none;
+}
+
+.hud-block { display: flex; flex-direction: column; }
+.lives-block { align-items: flex-end; }
+.eyebrow {
+  color: rgba(255,255,255,.55);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .28em;
+}
+
+#score, #stage {
+  font-family: "Orbitron", sans-serif;
+  font-size: clamp(17px, 2vw, 24px);
+  letter-spacing: .1em;
+  text-shadow: 0 0 16px rgba(35,232,255,.55);
+}
+
+#lives {
+  color: var(--pink);
+  font-size: 17px;
+  letter-spacing: .3em;
+  text-shadow: 0 0 12px var(--pink);
+}
+
+.stage-chip {
+  min-width: 78px;
+  padding: 8px 12px 7px;
+  border: 1px solid rgba(35,232,255,.42);
+  border-top: 0;
+  text-align: center;
+  background: linear-gradient(180deg, rgba(17,8,50,.88), rgba(17,8,50,.3));
+  box-shadow: 0 0 25px rgba(35,232,255,.1), inset 0 -1px rgba(255,45,168,.4);
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+}
+
+#power-status {
+  position: absolute;
+  z-index: 5;
+  left: clamp(20px, 4vw, 64px);
+  bottom: 28px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--yellow);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  transition: opacity .2s, transform .2s;
+}
+
+#power-status.hidden { opacity: 0; transform: translateY(8px); }
+#power-icon {
+  display: grid;
+  place-items: center;
+  width: 35px;
+  height: 35px;
+  border: 1px solid currentColor;
+  background: rgba(255,230,109,.1);
+  box-shadow: 0 0 15px currentColor;
+}
+.meter { width: 120px; height: 3px; margin-top: 6px; background: rgba(255,255,255,.15); }
+.meter i { display: block; width: 100%; height: 100%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+
+.icon-button {
+  position: absolute;
+  z-index: 6;
+  right: clamp(20px, 4vw, 64px);
+  bottom: 26px;
+  border: 0;
+  background: none;
+  color: rgba(255,255,255,.5);
+  font: 600 10px "Chakra Petch", sans-serif;
+  letter-spacing: .14em;
+  cursor: pointer;
+}
+#pause-toggle { right: clamp(105px, calc(4vw + 85px), 149px); }
+.icon-button:hover { color: var(--cyan); }
+
+.screen {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  background: radial-gradient(circle at 50% 46%, rgba(31,11,71,.2), rgba(5,3,13,.52) 70%);
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(1.02);
+  transition: opacity .45s, visibility .45s, transform .45s;
+}
+
+.screen.visible { opacity: 1; visibility: visible; transform: scale(1); }
+.kicker { margin: 0 0 14px; color: var(--cyan); font-size: 10px; font-weight: 700; letter-spacing: .42em; }
+h1, h2 {
+  margin: 0;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 900;
+  font-size: clamp(58px, 10vw, 128px);
+  line-height: .78;
+  letter-spacing: -.07em;
+  color: #fff;
+  text-shadow: 4px 4px 0 rgba(35,232,255,.34), -4px -2px 0 rgba(255,45,168,.3), 0 0 40px rgba(160,80,255,.35);
+}
+h1 em, h2 em { color: var(--pink); font-style: normal; }
+h2 { font-size: clamp(52px, 8vw, 100px); }
+.tagline, #message-copy { margin: 26px 0; color: rgba(255,255,255,.65); font-size: 11px; letter-spacing: .28em; }
+
+.primary-button {
+  min-width: 240px;
+  margin-top: 4px;
+  padding: 15px 19px;
+  border: 1px solid var(--cyan);
+  color: #fff;
+  background: linear-gradient(90deg, rgba(35,232,255,.17), rgba(255,45,168,.17));
+  box-shadow: inset 0 0 20px rgba(35,232,255,.08), 0 0 22px rgba(35,232,255,.18);
+  font: 700 12px "Chakra Petch", sans-serif;
+  letter-spacing: .2em;
+  cursor: pointer;
+  clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+  transition: background .2s, box-shadow .2s, transform .2s;
+}
+.primary-button span { float: right; font-size: 16px; line-height: 10px; }
+.primary-button:hover { background: linear-gradient(90deg, rgba(35,232,255,.3), rgba(255,45,168,.28)); box-shadow: 0 0 32px rgba(35,232,255,.35); transform: translateY(-2px); }
+
+.controls {
+  display: flex;
+  gap: 28px;
+  margin-top: 34px;
+  color: rgba(255,255,255,.42);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .13em;
+}
+kbd { margin: 0 2px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); font: inherit; color: rgba(255,255,255,.75); }
+.touch-hint { display: none; margin-top: 20px; color: rgba(255,255,255,.45); font-size: 10px; letter-spacing: .1em; }
+
+.sun-mark {
+  position: relative;
+  width: 86px;
+  height: 43px;
+  margin-bottom: 24px;
+  overflow: hidden;
+  border-radius: 86px 86px 0 0;
+  background: linear-gradient(#ffe66d, #ff2da8);
+  box-shadow: 0 0 35px rgba(255,45,168,.4);
+}
+.sun-mark i { position: absolute; left: 0; width: 100%; height: 3px; background: #16062f; }
+.sun-mark i:nth-child(1) { bottom: 4px; }
+.sun-mark i:nth-child(2) { bottom: 11px; }
+.sun-mark i:nth-child(3) { bottom: 20px; }
+.sun-mark i:nth-child(4) { bottom: 30px; }
+
+.results {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 8px 30px;
+  align-items: baseline;
+  margin: 32px 0 16px;
+  color: rgba(255,255,255,.5);
+  font-size: 10px;
+  letter-spacing: .2em;
+  text-align: left;
+}
+.results strong { color: #fff; font: 700 20px "Orbitron", sans-serif; text-align: right; }
+
+#vignette, #scanlines, #flash { position: absolute; z-index: 3; inset: 0; pointer-events: none; }
+#vignette { box-shadow: inset 0 0 160px 30px rgba(0,0,0,.72); }
+#scanlines { opacity: .11; background: repeating-linear-gradient(0deg, transparent 0, transparent 3px, #000 4px); }
+#flash { z-index: 20; background: #fff; opacity: 0; }
+#flash.active { animation: flash .18s ease-out; }
+@keyframes flash { 0% { opacity: .65; } 100% { opacity: 0; } }
+
+@media (max-width: 700px) {
+  #hud { padding-top: 16px; }
+  .controls { display: none; }
+  .touch-hint { display: block; }
+  .icon-button { bottom: 18px; }
+  #power-status { bottom: 20px; }
+}
