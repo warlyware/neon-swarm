@@ -101,6 +101,7 @@ const materials = {
   yellow: mat(COLORS.yellow),
   orange: mat(COLORS.orange),
   dark: mat(COLORS.dark, 0x210743, 0.65),
+  enemyWing: mat(0x6c55b3, 0x3f2384, 0.72),
   white: mat(COLORS.white, COLORS.cyan, 0.7),
   enemyShot: new THREE.MeshBasicMaterial({ color: COLORS.pink }),
   playerShot: new THREE.MeshBasicMaterial({ color: COLORS.cyan }),
@@ -167,139 +168,59 @@ createBackdrop();
 
 function createPlayer() {
   const ship = new THREE.Group();
-  const extrude = (shape, material, depth = 0.22, bevel = 0.06) => {
-    const geometry = new THREE.ExtrudeGeometry(shape, {
-      depth,
-      bevelEnabled: true,
-      bevelSegments: 2,
-      bevelSize: bevel,
-      bevelThickness: bevel,
-      curveSegments: 2,
-    });
-    geometry.translate(0, 0, -depth / 2);
-    return new THREE.Mesh(geometry, material);
-  };
+  const pearl = mat(0xe5e2ff, 0x6763a8, 0.42);
+  const violet = mat(0x624db7, 0x37217d, 0.72);
+  const blue = mat(0x2779d8, 0x0757bc, 0.92);
 
-  // A long, arrow-like fuselage gives the ship a readable arcade silhouette.
-  const bodyShape = new THREE.Shape();
-  bodyShape.moveTo(0, 1.85);
-  bodyShape.lineTo(0.5, 0.72);
-  bodyShape.lineTo(0.43, -0.82);
-  bodyShape.lineTo(0.22, -1.35);
-  bodyShape.lineTo(-0.22, -1.35);
-  bodyShape.lineTo(-0.43, -0.82);
-  bodyShape.lineTo(-0.5, 0.72);
-  bodyShape.closePath();
-  const body = extrude(bodyShape, materials.cyan, 0.42, 0.08);
-  body.position.z = 0.08;
+  // A single shallow chevron supplies the complete wing silhouette.
+  const wingShape = new THREE.Shape();
+  wingShape.moveTo(0, 0.72);
+  wingShape.lineTo(1.85, -0.92);
+  wingShape.lineTo(0.58, -0.62);
+  wingShape.lineTo(0, -1.2);
+  wingShape.lineTo(-0.58, -0.62);
+  wingShape.lineTo(-1.85, -0.92);
+  wingShape.closePath();
+  const wingGeometry = new THREE.ExtrudeGeometry(wingShape, {
+    depth: 0.2,
+    bevelEnabled: false,
+  });
+  wingGeometry.translate(0, 0, -0.12);
+  ship.add(new THREE.Mesh(wingGeometry, violet));
+
+  // The entire body is one low-poly arrow, capped by one simple cockpit.
+  const body = new THREE.Mesh(new THREE.ConeGeometry(0.58, 3.25, 4), pearl);
+  body.rotation.y = Math.PI / 4;
+  body.position.set(0, 0.15, 0.22);
   ship.add(body);
 
-  // Swept wings are separate armored panels, with a deep notch at the tail.
-  const wingShape = new THREE.Shape();
-  wingShape.moveTo(0.3, 0.72);
-  wingShape.lineTo(1.08, 0.45);
-  wingShape.lineTo(2.2, -0.92);
-  wingShape.lineTo(1.3, -0.72);
-  wingShape.lineTo(0.72, -1.32);
-  wingShape.lineTo(0.34, -0.9);
-  wingShape.closePath();
-  const rightWing = extrude(wingShape, materials.violet, 0.24, 0.055);
-  rightWing.position.z = -0.08;
-  ship.add(rightWing);
-  const leftWing = rightWing.clone();
-  leftWing.scale.x = -1;
-  ship.add(leftWing);
-
-  // Bright leading-edge strips keep the wing shape visible against the grid.
-  [-1, 1].forEach((side) => {
-    const rail = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 1.72, 0.12),
-      materials.pink
-    );
-    rail.position.set(side * 1.38, -0.08, 0.13);
-    rail.rotation.z = side * -0.68;
-    ship.add(rail);
-
-    const wingTip = new THREE.Mesh(
-      new THREE.ConeGeometry(0.17, 0.72, 4),
-      materials.cyan
-    );
-    wingTip.position.set(side * 1.85, -0.57, 0.12);
-    wingTip.rotation.z = Math.PI;
-    wingTip.rotation.y = Math.PI / 4;
-    ship.add(wingTip);
-  });
-
-  // Raised glass canopy with a hot-pink internal glow.
-  const canopyMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0x28115e,
-    emissive: COLORS.pink,
-    emissiveIntensity: 1.25,
-    metalness: 0.15,
-    roughness: 0.08,
-    clearcoat: 1,
-    clearcoatRoughness: 0.08,
-  });
-  const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.46, 20, 12), canopyMaterial);
-  cockpit.scale.set(0.68, 1.35, 0.46);
-  cockpit.position.set(0, 0.34, 0.48);
+  const cockpit = new THREE.Mesh(new THREE.OctahedronGeometry(0.38, 0), blue);
+  cockpit.scale.set(0.72, 1.05, 0.55);
+  cockpit.position.set(0, 0.36, 0.58);
   ship.add(cockpit);
 
-  const spine = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.45, 0.09), materials.white);
-  spine.position.set(0, -0.42, 0.5);
-  ship.add(spine);
+  const exhaust = new THREE.Mesh(
+    new THREE.BoxGeometry(0.28, 0.82, 0.2),
+    new THREE.MeshBasicMaterial({
+      color: 0x65f5ff,
+      transparent: true,
+      opacity: 0.86,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  exhaust.position.set(0, -1.72, 0.02);
+  ship.add(exhaust);
+  const thrusters = [exhaust];
 
-  const thrusters = [];
-  [-0.62, 0.62].forEach((x) => {
-    const housing = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.24, 0.31, 0.7, 8),
-      materials.dark
-    );
-    housing.position.set(x, -1.03, 0.02);
-    ship.add(housing);
-
-    const nozzle = new THREE.Mesh(
-      new THREE.TorusGeometry(0.23, 0.075, 6, 12),
-      materials.pink
-    );
-    nozzle.position.set(x, -1.38, 0.02);
-    nozzle.rotation.x = Math.PI / 2;
-    ship.add(nozzle);
-
-    const flame = new THREE.Mesh(
-      new THREE.ConeGeometry(0.2, 0.92, 8, 1, true),
-      new THREE.MeshBasicMaterial({
-        color: COLORS.cyan,
-        transparent: true,
-        opacity: 0.82,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      })
-    );
-    flame.position.set(x, -1.84, 0.02);
-    flame.rotation.z = Math.PI;
-    ship.add(flame);
-    thrusters.push(flame);
-  });
-
-  // Twin forward cannons line up with the existing two-shot firing pattern.
-  [-0.62, 0.62].forEach((x) => {
-    const cannon = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.82, 0.18), materials.white);
-    cannon.position.set(x, 0.83, 0.23);
-    ship.add(cannon);
-    const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.12, 0.24), materials.pink);
-    muzzle.position.set(x, 1.25, 0.23);
-    ship.add(muzzle);
-  });
-
-  const engineLight = new THREE.PointLight(COLORS.cyan, 6.5, 5.5);
-  engineLight.position.set(0, -1.5, 0.7);
+  const engineLight = new THREE.PointLight(0x42e8ff, 5, 4);
+  engineLight.position.set(0, -1.35, 0.45);
   ship.add(engineLight);
 
-  ship.scale.setScalar(1 / 3);
+  ship.scale.setScalar(0.45);
   ship.position.set(0, -8, 0);
   ship.userData = {
-    radius: 0.35,
+    radius: 0.55,
     fireTimer: 0,
     invulnerable: 0,
     velocityX: 0,
@@ -336,7 +257,7 @@ function createEnemy(type, row, col) {
   wingShape.lineTo(1.15, 0.75);
   wingShape.lineTo(0.82, -0.55);
   wingShape.lineTo(0, -0.25);
-  const wing = new THREE.Mesh(new THREE.ShapeGeometry(wingShape), materials.dark);
+  const wing = new THREE.Mesh(new THREE.ShapeGeometry(wingShape), materials.enemyWing);
   wing.position.z = -0.03;
   enemy.add(wing);
   const wing2 = wing.clone();
@@ -429,11 +350,11 @@ function clearEntities() {
 function shootPlayer() {
   if (!player || player.userData.fireTimer > 0 || state.mode !== "playing") return;
   const strong = state.power === "overdrive";
-  const spread = strong ? [-0.34, 0, 0.34] : [-0.21, 0.21];
+  const spread = strong ? [-0.36, 0, 0.36] : [-0.24, 0.24];
   spread.forEach((offset, index) => {
     if (!strong && index > 1) return;
     const shot = new THREE.Mesh(new THREE.BoxGeometry(0.12, strong ? 0.95 : 0.7, 0.14), materials.playerShot);
-    shot.position.set(player.position.x + offset, player.position.y + 0.52, 0);
+    shot.position.set(player.position.x + offset, player.position.y + 0.76, 0);
     shot.userData = { vy: strong ? 21 : 18, damage: strong ? 2 : 1, radius: 0.24 };
     world.add(shot);
     playerShots.push(shot);
@@ -471,16 +392,96 @@ function spawnPowerup(position) {
   ];
   const kind = kinds[Math.floor(Math.random() * kinds.length)];
   const group = new THREE.Group();
-  const outer = new THREE.Mesh(
-    new THREE.TorusGeometry(0.55, 0.1, 8, 6),
-    mat(kind.color)
+
+  const haloMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      glowColor: { value: new THREE.Color(kind.color) },
+      glowStrength: { value: 0.52 },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 glowColor;
+      uniform float glowStrength;
+      varying vec2 vUv;
+      void main() {
+        float radius = length(vUv - 0.5) * 2.0;
+        float alpha = pow(max(0.0, 1.0 - radius), 2.2) * glowStrength;
+        gl_FragColor = vec4(glowColor, alpha);
+      }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const halo = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), haloMaterial);
+  halo.position.z = -0.22;
+  group.add(halo);
+
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color: kind.color,
+    transparent: true,
+    opacity: 0.92,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const outerRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.63, 0.055, 8, 28),
+    ringMaterial
   );
-  outer.rotation.z = Math.PI / 6;
-  group.add(outer);
-  const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.27), mat(0xffffff, kind.color, 2.2));
+  outerRing.rotation.z = Math.PI / 4;
+  group.add(outerRing);
+
+  const innerRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.44, 0.035, 6, 22),
+    ringMaterial.clone()
+  );
+  innerRing.rotation.x = 1.05;
+  innerRing.rotation.y = 0.35;
+  group.add(innerRing);
+
+  const coreGeometry = kind.type === "overdrive"
+    ? new THREE.TetrahedronGeometry(0.36, 0)
+    : kind.type === "chrono"
+      ? new THREE.TorusKnotGeometry(0.23, 0.065, 40, 6)
+      : new THREE.IcosahedronGeometry(0.34, 0);
+  const core = new THREE.Mesh(coreGeometry, mat(0xffffff, kind.color, 2.8));
+  if (kind.type === "overdrive") core.scale.y = 1.35;
   group.add(core);
+
+  const orbit = new THREE.Group();
+  [-1, 1].forEach((side) => {
+    const mote = new THREE.Mesh(
+      new THREE.SphereGeometry(0.075, 6, 4),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    mote.position.x = side * 0.82;
+    orbit.add(mote);
+  });
+  group.add(orbit);
+
+  const light = new THREE.PointLight(kind.color, 7.5, 5.5);
+  light.position.z = 0.65;
+  group.add(light);
+
   group.position.copy(position);
-  group.userData = { ...kind, radius: 0.68, vy: -2.3, phase: 0 };
+  group.userData = {
+    ...kind,
+    radius: 0.72,
+    vy: -2.3,
+    phase: 0,
+    halo,
+    outerRing,
+    innerRing,
+    core,
+    orbit,
+    light,
+  };
   world.add(group);
   powerups.push(group);
 }
@@ -678,7 +679,7 @@ function sfx(kind) {
   gain.connect(audio.destination);
   const now = audio.currentTime;
   const settings = {
-    shoot: [620, 1100, 0.045, "square", 0.025],
+    shoot: [440, 210, 0.06, "sawtooth", 0.022],
     enemy: [180, 90, 0.09, "sawtooth", 0.018],
     hit: [130, 65, 0.08, "square", 0.03],
     explode: [95, 28, 0.28, "sawtooth", 0.07],
@@ -756,7 +757,7 @@ function updateEnemies(dt) {
       enemy.position.y = THREE.MathUtils.lerp(18 + d.row * 2, d.homeY + Math.sin(d.phase * 0.65) * 0.12, ease);
       enemy.rotation.z = Math.sin(d.phase) * 0.12;
       enemy.rotation.y = Math.sin(d.phase * 0.7) * 0.24;
-      if (d.type === "phantom") enemy.visible = Math.sin(d.phase * 3.1) > -0.72;
+      if (d.type === "phantom") enemy.visible = true;
     } else {
       const diveMultiplier = d.type === "phantom" ? 1.65 : d.type === "lancer" ? 1.3 : d.type === "bomber" ? 0.72 : 1;
       d.diveT += enemyDt * (0.21 + state.stage * 0.009) * diveMultiplier;
@@ -836,10 +837,22 @@ function updateProjectiles(dt) {
 function updatePowerups(dt) {
   for (let i = powerups.length - 1; i >= 0; i--) {
     const p = powerups[i];
-    p.userData.phase += dt;
+    const data = p.userData;
+    data.phase += dt;
     p.position.y += p.userData.vy * dt;
-    p.rotation.z += dt * 1.8;
-    p.scale.setScalar(1 + Math.sin(p.userData.phase * 6) * 0.08);
+    p.rotation.z += dt * 0.42;
+    data.outerRing.rotation.z += dt * 1.6;
+    data.outerRing.rotation.x = Math.sin(data.phase * 1.8) * 0.24;
+    data.innerRing.rotation.y += dt * 2.25;
+    data.innerRing.rotation.x -= dt * 0.85;
+    data.core.rotation.x += dt * 1.35;
+    data.core.rotation.y -= dt * 1.7;
+    data.orbit.rotation.z -= dt * 2.8;
+    const pulse = 1 + Math.sin(data.phase * 6) * 0.09;
+    p.scale.setScalar(pulse);
+    data.halo.material.uniforms.glowStrength.value = 0.44 + Math.sin(data.phase * 5) * 0.12;
+    data.halo.scale.setScalar(0.92 + Math.sin(data.phase * 4) * 0.1);
+    data.light.intensity = 6.2 + Math.sin(data.phase * 7) * 2.1;
     if (intersects(p, player)) {
       activatePowerup(p);
       removeAt(powerups, i);
