@@ -350,7 +350,7 @@ function createEnemy(type, row, col) {
 function spawnStage() {
   clearEntities();
   state.formationTime = 0;
-  state.enemyFireTimer = Math.max(0.16, 0.577 - state.stage * 0.0289);
+  state.enemyFireTimer = Math.max(0.213, 0.769 - state.stage * 0.0385);
   const rows = Math.min(5, 3 + Math.floor(state.stage / 2));
   const cols = Math.min(10, 6 + state.stage);
   const spacingX = Math.min(2.65, 17 / (cols - 1));
@@ -964,7 +964,7 @@ function updateEnemies(dt) {
     if (state.enemyFireTimer <= 0) {
       const candidates = enemies.filter((e) => e.position.y > -3);
       if (candidates.length) shootEnemy(candidates[Math.floor(Math.random() * candidates.length)]);
-      state.enemyFireTimer = Math.max(0.124, 0.543 - state.stage * 0.0267) * (0.72 + Math.random() * 0.7);
+      state.enemyFireTimer = Math.max(0.165, 0.724 - state.stage * 0.0356) * (0.72 + Math.random() * 0.7);
     }
     const diving = enemies.filter((e) => e.userData.diving).length;
     const maxDivers = Math.min(4, 1 + Math.floor(state.stage / 3));
