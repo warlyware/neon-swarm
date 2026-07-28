@@ -409,7 +409,7 @@ function createEnemy(type, row, col) {
 }
 
 function spawnStage() {
-  clearEntities({ preservePowerups: true });
+  clearEntities();
   state.formationTime = 0;
   state.enemyFireTimer = Math.max(0.213, 0.769 - state.stage * 0.0385);
   const rows = Math.min(5, 3 + Math.floor(state.stage / 2));
@@ -431,20 +431,72 @@ function spawnStage() {
   }
 }
 
-function clearEntities({ preservePowerups = false } = {}) {
-  const removable = [
-    ...enemies,
-    ...playerShots,
-    ...enemyShots,
-    ...particles,
-    ...(preservePowerups ? [] : powerups),
-  ];
+function clearEntities() {
+  const removable = [...enemies, ...playerShots, ...enemyShots, ...particles, ...powerups];
   removable.forEach((object) => world.remove(object));
   enemies.length = 0;
   playerShots.length = 0;
   enemyShots.length = 0;
   particles.length = 0;
-  if (!preservePowerups) powerups.length = 0;
+  powerups.length = 0;
+}
+
+function beginPowerupTransitionFade() {
+  const duration = 0.65;
+  for (const powerup of powerups) {
+    const materialOpacities = new Map();
+    powerup.traverse((object) => {
+      if (!object.material) return;
+      const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of objectMaterials) {
+        if (materialOpacities.has(material)) continue;
+        material.transparent = true;
+        materialOpacities.set(material, material.opacity);
+      }
+    });
+    powerup.userData.transitionFade = {
+      elapsed: 0,
+      duration,
+      materialOpacities,
+      scale: powerup.scale.x,
+      haloStrength: powerup.userData.halo.material.uniforms.glowStrength.value,
+      lightIntensity: powerup.userData.light.intensity,
+      accentIntensity: powerup.userData.accentLight?.intensity ?? 0,
+    };
+  }
+
+  for (const particle of particles) {
+    if (particle.userData.sparkle) {
+      particle.userData.life = Math.min(particle.userData.life, duration);
+    }
+  }
+}
+
+function updateTransitionPowerups(dt) {
+  for (let i = powerups.length - 1; i >= 0; i--) {
+    const powerup = powerups[i];
+    const fade = powerup.userData.transitionFade;
+    if (!fade) {
+      removeAt(powerups, i);
+      continue;
+    }
+
+    fade.elapsed += dt;
+    const progress = Math.min(1, fade.elapsed / fade.duration);
+    const visibility = 1 - progress * progress;
+    fade.materialOpacities.forEach((opacity, material) => {
+      material.opacity = opacity * visibility;
+    });
+    powerup.userData.halo.material.uniforms.glowStrength.value = fade.haloStrength * visibility;
+    powerup.userData.light.intensity = fade.lightIntensity * visibility;
+    if (powerup.userData.accentLight) {
+      powerup.userData.accentLight.intensity = fade.accentIntensity * visibility;
+    }
+    powerup.scale.setScalar(fade.scale * (0.72 + visibility * 0.28));
+    powerup.rotation.z += dt * 1.8;
+
+    if (progress >= 1) removeAt(powerups, i);
+  }
 }
 
 function spawnPlayerProjectile(offsetX, {
@@ -906,6 +958,7 @@ function killEnemy(enemy, shot) {
 function completeStage() {
   state.mode = "transition";
   if (player?.userData.beam) player.userData.beam.visible = false;
+  beginPowerupTransitionFade();
   const stageBonus = 1000 * state.stage * (state.powers.multiplier > 0 ? 2 : 1);
   state.score += stageBonus;
   updateHud();
@@ -1697,6 +1750,7 @@ function animate() {
     updatePowerups(dt);
     updateParticles(dt);
   } else if (state.mode === "transition") {
+    updateTransitionPowerups(dt);
     updateParticles(dt);
   }
 
