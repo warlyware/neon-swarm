@@ -12,9 +12,7 @@ const ui = {
   stage: document.querySelector("#stage"),
   lives: document.querySelector("#lives"),
   power: document.querySelector("#power-status"),
-  powerName: document.querySelector("#power-name"),
-  powerIcon: document.querySelector("#power-icon"),
-  powerMeter: document.querySelector("#power-meter"),
+  powerList: document.querySelector("#power-list"),
   start: document.querySelector("#start-screen"),
   startButton: document.querySelector("#start-button"),
   message: document.querySelector("#message-screen"),
@@ -25,6 +23,13 @@ const ui = {
   finalScore: document.querySelector("#final-score"),
   finalStage: document.querySelector("#final-stage"),
   restart: document.querySelector("#restart-button"),
+  leaderboard: document.querySelector("#leaderboard-panel"),
+  leaderboardButton: document.querySelector("#leaderboard-button"),
+  gameOverLeaderboardButton: document.querySelector("#game-over-leaderboard-button"),
+  leaderboardClose: document.querySelector("#leaderboard-close"),
+  leaderboardStatus: document.querySelector("#leaderboard-status"),
+  leaderboardList: document.querySelector("#leaderboard-list"),
+  leaderboardSignIn: document.querySelector("#leaderboard-sign-in"),
   sound: document.querySelector("#sound-toggle"),
   pause: document.querySelector("#pause-toggle"),
   flash: document.querySelector("#flash"),
@@ -56,6 +61,12 @@ const COLORS = {
   white: 0xffffff,
 };
 
+const POWER_DEFS = {
+  overdrive: { type: "overdrive", color: COLORS.yellow, icon: "⚡", name: "TRIPLE OVERDRIVE", duration: 11 },
+  chrono: { type: "chrono", color: COLORS.cyan, icon: "◷", name: "CHRONO FIELD", duration: 11 },
+  shield: { type: "shield", color: COLORS.pink, icon: "◇", name: "PHASE SHIELD", duration: 9 },
+};
+
 const state = {
   mode: "title",
   paused: false,
@@ -66,9 +77,7 @@ const state = {
   stageTimer: 0,
   formationTime: 0,
   enemyFireTimer: 1,
-  power: null,
-  powerTime: 0,
-  powerMax: 0,
+  powers: { overdrive: 0, chrono: 0, shield: 0 },
   shake: 0,
 };
 
@@ -83,6 +92,8 @@ let audio;
 let pointerDown = false;
 let pointerX = 0;
 let pointerY = 0;
+let portalsReady = false;
+let portalsPlayer = null;
 
 function mat(color, emissive = color, intensity = 1.4) {
   return new THREE.MeshStandardMaterial({
@@ -119,7 +130,7 @@ function createBackdrop() {
   const starsGeo = new THREE.BufferGeometry();
   const positions = [];
   const colors = [];
-  for (let i = 0; i < 900; i++) {
+  for (let i = 0; i < 4500; i++) {
     positions.push((Math.random() - 0.5) * 90, (Math.random() - 0.3) * 85, -8 - Math.random() * 65);
     const c = new THREE.Color(Math.random() > 0.73 ? COLORS.pink : COLORS.cyan);
     colors.push(c.r, c.g, c.b);
@@ -135,22 +146,6 @@ function createBackdrop() {
   }));
   stars.name = "stars";
   scene.add(stars);
-
-  const sun = new THREE.Mesh(
-    new THREE.CircleGeometry(5.4, 64),
-    new THREE.MeshBasicMaterial({ color: 0xff477e, transparent: true, opacity: 0.65 })
-  );
-  sun.position.set(0, 7, -35);
-  scene.add(sun);
-
-  for (let i = 0; i < 6; i++) {
-    const bar = new THREE.Mesh(
-      new THREE.PlaneGeometry(11.5, 0.14 + i * 0.03),
-      new THREE.MeshBasicMaterial({ color: 0x080315 })
-    );
-    bar.position.set(0, 4 + i * 0.9, -34.8);
-    scene.add(bar);
-  }
 
   const grid = new THREE.GridHelper(100, 34, COLORS.pink, 0x3d1978);
   grid.position.set(0, -11.2, -18);
@@ -349,7 +344,7 @@ function clearEntities() {
 
 function shootPlayer() {
   if (!player || player.userData.fireTimer > 0 || state.mode !== "playing") return;
-  const strong = state.power === "overdrive";
+  const strong = state.powers.overdrive > 0;
   const spread = strong ? [-0.36, 0, 0.36] : [-0.24, 0.24];
   spread.forEach((offset, index) => {
     if (!strong && index > 1) return;
@@ -385,11 +380,7 @@ function shootEnemy(enemy) {
 }
 
 function spawnPowerup(position) {
-  const kinds = [
-    { type: "overdrive", color: COLORS.yellow, icon: "⚡", name: "TRIPLE OVERDRIVE" },
-    { type: "chrono", color: COLORS.cyan, icon: "◷", name: "CHRONO FIELD" },
-    { type: "shield", color: COLORS.pink, icon: "◇", name: "PHASE SHIELD" },
-  ];
+  const kinds = Object.values(POWER_DEFS);
   const kind = kinds[Math.floor(Math.random() * kinds.length)];
   const group = new THREE.Group();
 
@@ -487,15 +478,37 @@ function spawnPowerup(position) {
 }
 
 function activatePowerup(p) {
-  state.power = p.userData.type;
-  state.powerMax = p.userData.type === "shield" ? 9 : 11;
-  state.powerTime = state.powerMax;
-  ui.powerName.textContent = p.userData.name;
-  ui.powerIcon.textContent = p.userData.icon;
-  ui.power.style.color = `#${p.userData.color.toString(16).padStart(6, "0")}`;
-  ui.power.classList.remove("hidden");
+  const type = p.userData.type;
+  state.powers[type] += POWER_DEFS[type].duration;
+  syncPowerHud();
   burst(p.position, p.userData.color, 28);
   sfx("power");
+}
+
+function syncPowerHud() {
+  const active = Object.values(POWER_DEFS).filter((power) => state.powers[power.type] > 0);
+  ui.power.classList.toggle("hidden", active.length === 0);
+  ui.powerList.replaceChildren(...active.map((power) => {
+    const chip = document.createElement("div");
+    chip.className = "power-chip";
+    chip.style.setProperty("--power-color", `#${power.color.toString(16).padStart(6, "0")}`);
+
+    const icon = document.createElement("span");
+    icon.className = "power-icon";
+    icon.textContent = power.icon;
+
+    const details = document.createElement("div");
+    const name = document.createElement("span");
+    name.textContent = power.name;
+    const meter = document.createElement("div");
+    meter.className = "meter";
+    const fill = document.createElement("i");
+    fill.dataset.powerMeter = power.type;
+    meter.append(fill);
+    details.append(name, meter);
+    chip.append(icon, details);
+    return chip;
+  }));
 }
 
 function burst(position, color, count = 14) {
@@ -521,8 +534,9 @@ function burst(position, color, count = 14) {
 
 function hitPlayer() {
   if (player.userData.invulnerable > 0 || state.mode !== "playing") return;
-  if (state.power === "shield") {
-    state.powerTime = 0;
+  if (state.powers.shield > 0) {
+    state.powers.shield = 0;
+    syncPowerHud();
     burst(player.position, COLORS.pink, 22);
     state.shake = 0.22;
     sfx("power");
@@ -613,6 +627,111 @@ function updateHud() {
   ui.lives.setAttribute("aria-label", `${state.lives} lives`);
 }
 
+function renderLeaderboard(entries = []) {
+  ui.leaderboardList.replaceChildren(...entries.map((entry) => {
+    const row = document.createElement("li");
+    row.className = "leaderboard-entry";
+    if (portalsPlayer?.playerId && entry.playerId === portalsPlayer.playerId) row.classList.add("is-player");
+
+    const rank = document.createElement("span");
+    rank.className = "leaderboard-rank";
+    rank.textContent = String(entry.rank).padStart(2, "0");
+
+    const name = document.createElement("span");
+    name.className = "leaderboard-name";
+    name.textContent = entry.displayName || "Anonymous Pilot";
+
+    const score = document.createElement("span");
+    score.className = "leaderboard-score";
+    score.textContent = Number(entry.score).toLocaleString();
+
+    row.append(rank, name, score);
+    return row;
+  }));
+}
+
+function updateLeaderboardIdentity() {
+  const signedIn = Boolean(portalsPlayer?.playerId);
+  ui.leaderboardSignIn.classList.toggle("hidden", signedIn || !portalsReady);
+}
+
+async function refreshLeaderboard() {
+  if (!portalsReady) return;
+  ui.leaderboardStatus.textContent = "RECEIVING PILOT RECORDS…";
+  try {
+    const board = await window.Portals.getLeaderboard({ limit: 10 });
+    renderLeaderboard(board.entries || []);
+    const pilot = portalsPlayer?.displayName || "SIGNED-IN PILOT";
+    ui.leaderboardStatus.textContent = portalsPlayer?.playerId
+      ? `CONNECTED AS ${pilot.toUpperCase()}`
+      : "SIGN IN TO ADD YOUR SCORE";
+  } catch (error) {
+    console.error("Leaderboard could not be loaded", error);
+    ui.leaderboardStatus.textContent = "LEADERBOARD SIGNAL UNAVAILABLE";
+  }
+  updateLeaderboardIdentity();
+}
+
+async function initializePortals() {
+  if (!window.Portals) {
+    ui.leaderboardStatus.textContent = "LEADERBOARD AVAILABLE ON PORTALS";
+    return;
+  }
+  try {
+    const session = await window.Portals.ready();
+    portalsReady = true;
+    portalsPlayer = session.player;
+    window.Portals.identity.onChange((player) => {
+      portalsPlayer = player;
+      updateLeaderboardIdentity();
+      refreshLeaderboard();
+    });
+    updateLeaderboardIdentity();
+    await refreshLeaderboard();
+  } catch (error) {
+    console.error("Portals SDK is unavailable", error);
+    ui.leaderboardStatus.textContent = "PORTALS HOST UNAVAILABLE";
+  }
+}
+
+async function requestPortalsLogin() {
+  if (!portalsReady) return;
+  ui.leaderboardStatus.textContent = "AWAITING PILOT IDENTIFICATION…";
+  try {
+    portalsPlayer = await window.Portals.identity.requestLogin();
+    updateLeaderboardIdentity();
+    if (state.mode === "gameover") await submitGameScore();
+    else await refreshLeaderboard();
+  } catch (error) {
+    console.error("Portals sign-in was not completed", error);
+    ui.leaderboardStatus.textContent = "SIGN-IN WAS NOT COMPLETED";
+  }
+}
+
+async function submitGameScore() {
+  if (!portalsReady || !portalsPlayer?.playerId) {
+    updateLeaderboardIdentity();
+    return;
+  }
+  ui.leaderboardStatus.textContent = "TRANSMITTING SCORE…";
+  try {
+    await window.Portals.submitScore(Math.max(0, Math.floor(state.score)));
+    await refreshLeaderboard();
+  } catch (error) {
+    console.error("Score could not be submitted", error);
+    ui.leaderboardStatus.textContent = "SCORE TRANSMISSION FAILED";
+  }
+}
+
+function openLeaderboard() {
+  ui.leaderboard.classList.remove("hidden");
+  if (portalsReady) refreshLeaderboard();
+}
+
+function closeLeaderboard() {
+  ui.leaderboard.classList.add("hidden");
+}
+
 function resetGame() {
   clearEntities();
   if (player) world.remove(player);
@@ -623,12 +742,11 @@ function resetGame() {
     stage: 1,
     lives: 3,
     formationTime: 0,
-    power: null,
-    powerTime: 0,
+    powers: { overdrive: 0, chrono: 0, shield: 0 },
     shake: 0,
   });
   player = createPlayer();
-  ui.power.classList.add("hidden");
+  syncPowerHud();
   ui.start.classList.remove("visible");
   ui.gameOver.classList.remove("visible");
   ui.pause.textContent = "PAUSE";
@@ -649,6 +767,7 @@ function endGame() {
   ui.finalScore.textContent = String(state.score).padStart(6, "0");
   ui.finalStage.textContent = String(Math.max(0, state.stage - (enemies.length ? 1 : 0))).padStart(2, "0");
   ui.gameOver.classList.add("visible");
+  submitGameScore();
 }
 
 function togglePause() {
@@ -740,7 +859,7 @@ function updatePlayer(dt) {
 }
 
 function updateEnemies(dt) {
-  const slow = state.power === "chrono" ? 0.48 : 1;
+  const slow = state.powers.chrono > 0 ? 0.48 : 1;
   const enemyDt = dt * slow;
   state.formationTime += enemyDt;
   state.enemyFireTimer -= enemyDt;
@@ -858,14 +977,15 @@ function updatePowerups(dt) {
       removeAt(powerups, i);
     } else if (p.position.y < -13) removeAt(powerups, i);
   }
-  if (state.power) {
-    state.powerTime -= dt;
-    ui.powerMeter.style.width = `${Math.max(0, state.powerTime / state.powerMax) * 100}%`;
-    if (state.powerTime <= 0) {
-      state.power = null;
-      ui.power.classList.add("hidden");
-    }
+  let expired = false;
+  for (const power of Object.values(POWER_DEFS)) {
+    if (state.powers[power.type] <= 0) continue;
+    state.powers[power.type] = Math.max(0, state.powers[power.type] - dt);
+    const meter = ui.powerList.querySelector(`[data-power-meter="${power.type}"]`);
+    if (meter) meter.style.width = `${Math.min(100, state.powers[power.type] / power.duration * 100)}%`;
+    if (state.powers[power.type] === 0) expired = true;
   }
+  if (expired) syncPowerHud();
 }
 
 function updateParticles(dt) {
@@ -946,6 +1066,13 @@ canvas.addEventListener("pointercancel", () => { pointerDown = false; });
 
 ui.startButton.addEventListener("click", resetGame);
 ui.restart.addEventListener("click", resetGame);
+ui.leaderboardButton.addEventListener("click", openLeaderboard);
+ui.gameOverLeaderboardButton.addEventListener("click", openLeaderboard);
+ui.leaderboardClose.addEventListener("click", closeLeaderboard);
+ui.leaderboardSignIn.addEventListener("click", requestPortalsLogin);
+ui.leaderboard.addEventListener("click", (event) => {
+  if (event.target === ui.leaderboard) closeLeaderboard();
+});
 ui.pause.addEventListener("click", togglePause);
 ui.sound.addEventListener("click", () => {
   state.sound = !state.sound;
@@ -963,3 +1090,5 @@ addEventListener("resize", () => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && state.mode === "playing") togglePause();
 });
+
+initializePortals();

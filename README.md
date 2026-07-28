@@ -14,3 +14,7 @@ Controls: arrow keys or WASD to fly in any direction, Space to fire, and P to pa
 Power-ups include triple-shot overdrive, a chrono field that slows enemy movement, and a phase shield that absorbs a hit.
 
 Enemy waves mix scouts, guards, aces, heavy bombers, flickering phantoms, and fast-diving lancers as the stages progress.
+
+## Portals leaderboard
+
+The game uses the managed Portals SDK at `./_portals/sdk.js` to read the global top ten and submit each signed-in player's best score when a run ends. Portals injects this file during preview and publishing, so it is intentionally not included in the repository. Local development remains playable, but the leaderboard displays an unavailable-host message.

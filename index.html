@@ -27,11 +27,7 @@
       </section>
 
       <aside id="power-status" class="hidden">
-        <span id="power-icon">⚡</span>
-        <div>
-          <span id="power-name">OVERDRIVE</span>
-          <div class="meter"><i id="power-meter"></i></div>
-        </div>
+        <div id="power-list"></div>
       </aside>
 
       <button id="sound-toggle" class="icon-button" aria-label="Toggle sound">SOUND: ON</button>
@@ -43,6 +39,7 @@
         <h1>NEON<br /><em>SWARM</em></h1>
         <p class="tagline">BREAK FORMATION. BEND TIME. OWN THE NIGHT.</p>
         <button id="start-button" class="primary-button">ENTER THE GRID <span>→</span></button>
+        <button id="leaderboard-button" class="secondary-button">VIEW LEADERBOARD</button>
         <div class="controls">
           <span><kbd>ARROWS</kbd> or <kbd>WASD</kbd> MOVE</span>
           <span><kbd>SPACE</kbd> FIRE</span>
@@ -67,12 +64,25 @@
           <strong id="final-stage">00</strong>
         </div>
         <button id="restart-button" class="primary-button">REBOOT SYSTEM <span>↻</span></button>
+        <button id="game-over-leaderboard-button" class="secondary-button">VIEW LEADERBOARD</button>
+      </section>
+
+      <section id="leaderboard-panel" class="leaderboard-panel hidden" aria-label="Leaderboard">
+        <div class="leaderboard-card">
+          <button id="leaderboard-close" class="leaderboard-close" aria-label="Close leaderboard">×</button>
+          <p class="kicker">GLOBAL TRANSMISSION</p>
+          <h3>TOP PILOTS</h3>
+          <p id="leaderboard-status" class="leaderboard-status">CONNECTING TO PORTALS…</p>
+          <ol id="leaderboard-list" class="leaderboard-list"></ol>
+          <button id="leaderboard-sign-in" class="primary-button hidden">SIGN IN TO COMPETE <span>→</span></button>
+        </div>
       </section>
 
       <div id="vignette"></div>
       <div id="scanlines"></div>
       <div id="flash"></div>
     </main>
+    <script src="./_portals/sdk.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
