@@ -84,6 +84,7 @@ const NOVA_POWER = {
   icon: "✦",
   name: "NOVA BOMB",
 };
+const MAX_PLAYER_LIVES = 6;
 
 const state = {
   mode: "title",
@@ -592,13 +593,18 @@ function shootEnemy(enemy) {
 }
 
 function spawnPowerup(position) {
-  const kinds = Object.values(POWER_DEFS);
+  const kinds = Object.values(POWER_DEFS).filter((power) => (
+    power.type !== "magnet" || state.stage < 10
+  ));
   const rareRoll = Math.random();
-  const kind = rareRoll < 0.1
-    ? EXTRA_SHIP_POWER
-    : rareRoll < 0.2
-      ? NOVA_POWER
-      : kinds[Math.floor(Math.random() * kinds.length)];
+  let kind;
+  if (rareRoll < 0.1 && state.lives < MAX_PLAYER_LIVES) {
+    kind = EXTRA_SHIP_POWER;
+  } else if (rareRoll >= 0.1 && rareRoll < 0.2) {
+    kind = NOVA_POWER;
+  } else {
+    kind = kinds[Math.floor(Math.random() * kinds.length)];
+  }
   const isExtraShip = kind.type === "extra-ship";
   const group = new THREE.Group();
 
@@ -736,7 +742,7 @@ function spawnPowerup(position) {
 function activatePowerup(p) {
   const type = p.userData.type;
   if (type === "extra-ship") {
-    state.lives++;
+    state.lives = Math.min(MAX_PLAYER_LIVES, state.lives + 1);
     updateHud();
     burst(p.position, p.userData.color, 36);
     sfx("power");
