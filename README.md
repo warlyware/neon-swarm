@@ -11,9 +11,11 @@ npm run dev
 
 Controls: arrow keys or WASD to fly in any direction, Space to fire, and P to pause. On touch devices, drag to move and hold to fire.
 
-Power-ups include triple-shot overdrive, a chrono field that slows enemies and their bullets, a phase shield that absorbs a hit, and a rare extra-ship pickup.
+Power-ups include triple-shot overdrive, chrono slowdown, a phase shield, piercing plasma beams, homing missiles, mirror drones, a pickup magnet, a score multiplier, angled cannons, an instant Nova Bomb, and a rare extra-ship pickup. Timed effects stack independently.
 
 Enemy waves mix scouts, guards, aces, heavy bombers, flickering phantoms, and fast-diving lancers as the stages progress.
+
+Stages 1–5 use an original percussion-free 132 BPM arcade-vaporwave loop. From stage 6 onward, the soundtrack switches to a faster 160 BPM companion composition with a more urgent edge. Both tracks are synthesized locally with the Web Audio API, require no streamed or remote audio assets, and follow the in-game sound and pause controls.
 
 ## Portals leaderboard
 

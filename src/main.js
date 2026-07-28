@@ -52,11 +52,11 @@ const world = new THREE.Group();
 scene.add(world);
 
 const COLORS = {
-  cyan: 0x23e8ff,
-  pink: 0xff2da8,
-  violet: 0x8754ff,
-  yellow: 0xffe66d,
-  orange: 0xff8a3d,
+  cyan: 0x00f5ff,
+  pink: 0xff00b8,
+  violet: 0x922bff,
+  yellow: 0xffff32,
+  orange: 0xff6500,
   dark: 0x120528,
   white: 0xffffff,
 };
@@ -65,12 +65,24 @@ const POWER_DEFS = {
   overdrive: { type: "overdrive", color: COLORS.yellow, icon: "⚡", name: "TRIPLE OVERDRIVE", duration: 11 },
   chrono: { type: "chrono", color: COLORS.cyan, icon: "◷", name: "CHRONO FIELD", duration: 11 },
   shield: { type: "shield", color: COLORS.pink, icon: "◇", name: "PHASE SHIELD", duration: 9 },
+  plasma: { type: "plasma", color: 0x72f7ff, icon: "┃", name: "PLASMA BEAM", duration: 8 },
+  homing: { type: "homing", color: 0xffb347, icon: "⌁", name: "HOMING SWARM", duration: 10 },
+  drones: { type: "drones", color: 0xb58cff, icon: "◆", name: "MIRROR DRONES", duration: 10 },
+  magnet: { type: "magnet", color: 0x62ff9f, icon: "∩", name: "MAGNETIC FIELD", duration: 10 },
+  multiplier: { type: "multiplier", color: 0xff79d1, icon: "×2", name: "SCORE MULTIPLIER", duration: 12 },
+  spread: { type: "spread", color: 0x8fb7ff, icon: "⋰", name: "ANGLE CANNONS", duration: 10 },
 };
 const EXTRA_SHIP_POWER = {
   type: "extra-ship",
   color: COLORS.white,
   icon: "◆",
   name: "EXTRA SHIP",
+};
+const NOVA_POWER = {
+  type: "nova",
+  color: 0xd7b8ff,
+  icon: "✦",
+  name: "NOVA BOMB",
 };
 
 const state = {
@@ -83,7 +95,7 @@ const state = {
   stageTimer: 0,
   formationTime: 0,
   enemyFireTimer: 1,
-  powers: { overdrive: 0, chrono: 0, shield: 0 },
+  powers: Object.fromEntries(Object.keys(POWER_DEFS).map((type) => [type, 0])),
   shake: 0,
 };
 
@@ -95,13 +107,18 @@ const powerups = [];
 const particles = [];
 let player;
 let audio;
+let musicBus;
+let musicTimer;
+let musicStep = 0;
+let activeMusicTrack = null;
+let nextMusicTime = 0;
 let pointerDown = false;
 let pointerX = 0;
 let pointerY = 0;
 let portalsReady = false;
 let portalsPlayer = null;
 
-function mat(color, emissive = color, intensity = 1.4) {
+function mat(color, emissive = color, intensity = 2.3) {
   return new THREE.MeshStandardMaterial({
     color,
     emissive,
@@ -113,7 +130,10 @@ function mat(color, emissive = color, intensity = 1.4) {
 
 function projectileGlowMaterial(color) {
   return new THREE.ShaderMaterial({
-    uniforms: { glowColor: { value: new THREE.Color(color) } },
+    uniforms: {
+      glowColor: { value: new THREE.Color(color) },
+      glowOpacity: { value: 1 },
+    },
     vertexShader: `
       varying vec2 vUv;
       void main() {
@@ -123,10 +143,11 @@ function projectileGlowMaterial(color) {
     `,
     fragmentShader: `
       uniform vec3 glowColor;
+      uniform float glowOpacity;
       varying vec2 vUv;
       void main() {
         float radius = length((vUv - 0.5) * 2.0);
-        float alpha = pow(max(0.0, 1.0 - radius), 2.0) * 0.72;
+        float alpha = pow(max(0.0, 1.0 - radius), 2.0) * 0.72 * glowOpacity;
         gl_FragColor = vec4(glowColor, alpha);
       }
     `,
@@ -143,13 +164,47 @@ const materials = {
   yellow: mat(COLORS.yellow),
   orange: mat(COLORS.orange),
   dark: mat(COLORS.dark, 0x210743, 0.65),
-  enemyWing: mat(0x6c55b3, 0x3f2384, 0.72),
+  mint: mat(0x32ffad, 0x00ed89, 2.55),
   white: mat(COLORS.white, COLORS.cyan, 0.7),
   enemyShot: new THREE.MeshBasicMaterial({ color: COLORS.pink }),
   playerShot: new THREE.MeshBasicMaterial({ color: COLORS.cyan }),
+  homingShot: new THREE.MeshBasicMaterial({ color: 0xffb347 }),
   enemyShotGlow: projectileGlowMaterial(COLORS.pink),
   playerShotGlow: projectileGlowMaterial(COLORS.cyan),
+  homingShotGlow: projectileGlowMaterial(0xffb347),
 };
+
+const shipGlowMaterials = {
+  player: projectileGlowMaterial(0x00f5ff),
+  scout: projectileGlowMaterial(COLORS.violet),
+  guard: projectileGlowMaterial(COLORS.pink),
+  ace: projectileGlowMaterial(COLORS.yellow),
+  bomber: projectileGlowMaterial(COLORS.orange),
+  phantom: projectileGlowMaterial(COLORS.cyan),
+  lancer: projectileGlowMaterial(0x32ffad),
+};
+
+function enemyWireMaterial(color) {
+  return new THREE.MeshBasicMaterial({
+    color,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.98,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+}
+
+const enemyWireMaterials = {
+  scout: enemyWireMaterial(COLORS.violet),
+  guard: enemyWireMaterial(COLORS.pink),
+  ace: enemyWireMaterial(COLORS.yellow),
+  bomber: enemyWireMaterial(COLORS.orange),
+  phantom: enemyWireMaterial(COLORS.cyan),
+  lancer: enemyWireMaterial(0x32ffad),
+};
+
+const playerWireMaterial = enemyWireMaterial(COLORS.cyan);
 
 scene.add(new THREE.HemisphereLight(0x7030ff, 0x07020f, 1.4));
 const keyLight = new THREE.PointLight(COLORS.cyan, 28, 42);
@@ -180,10 +235,12 @@ function createBackdrop() {
   stars.name = "stars";
   scene.add(stars);
 
-  const grid = new THREE.GridHelper(100, 34, COLORS.pink, 0x3d1978);
+  const grid = new THREE.GridHelper(100, 34, 0xff00d9, 0xa000ff);
   grid.position.set(0, -11.2, -18);
   grid.material.transparent = true;
-  grid.material.opacity = 0.42;
+  grid.material.opacity = 0.72;
+  grid.material.blending = THREE.AdditiveBlending;
+  grid.material.depthWrite = false;
   scene.add(grid);
 
   const horizon = new THREE.Line(
@@ -196,36 +253,19 @@ createBackdrop();
 
 function createPlayer() {
   const ship = new THREE.Group();
-  const pearl = mat(0xe5e2ff, 0x6763a8, 0.42);
-  const violet = mat(0x624db7, 0x37217d, 0.72);
-  const blue = mat(0x2779d8, 0x0757bc, 0.92);
 
-  // A single shallow chevron supplies the complete wing silhouette.
-  const wingShape = new THREE.Shape();
-  wingShape.moveTo(0, 0.72);
-  wingShape.lineTo(1.85, -0.92);
-  wingShape.lineTo(0.58, -0.62);
-  wingShape.lineTo(0, -1.2);
-  wingShape.lineTo(-0.58, -0.62);
-  wingShape.lineTo(-1.85, -0.92);
-  wingShape.closePath();
-  const wingGeometry = new THREE.ExtrudeGeometry(wingShape, {
-    depth: 0.2,
-    bevelEnabled: false,
-  });
-  wingGeometry.translate(0, 0, -0.12);
-  ship.add(new THREE.Mesh(wingGeometry, violet));
+  const shipAura = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.4, 5.4),
+    shipGlowMaterials.player
+  );
+  shipAura.position.z = -0.36;
+  ship.add(shipAura);
 
-  // The entire body is one low-poly arrow, capped by one simple cockpit.
-  const body = new THREE.Mesh(new THREE.ConeGeometry(0.58, 3.25, 4), pearl);
+  // A single glowing wireframe hull matches the minimal enemy silhouettes.
+  const body = new THREE.Mesh(new THREE.ConeGeometry(0.9, 3.25, 4), playerWireMaterial);
   body.rotation.y = Math.PI / 4;
   body.position.set(0, 0.15, 0.22);
   ship.add(body);
-
-  const cockpit = new THREE.Mesh(new THREE.OctahedronGeometry(0.38, 0), blue);
-  cockpit.scale.set(0.72, 1.05, 0.55);
-  cockpit.position.set(0, 0.36, 0.58);
-  ship.add(cockpit);
 
   const exhaust = new THREE.Mesh(
     new THREE.BoxGeometry(0.28, 0.82, 0.2),
@@ -245,6 +285,20 @@ function createPlayer() {
   engineLight.position.set(0, -1.35, 0.45);
   ship.add(engineLight);
 
+  const drones = [-1, 1].map((side) => {
+    const drone = new THREE.Group();
+    const droneAura = new THREE.Mesh(new THREE.PlaneGeometry(1.65, 1.65), shipGlowMaterials.scout);
+    droneAura.position.z = -0.2;
+    drone.add(droneAura);
+    drone.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.34, 0), materials.violet));
+    const droneWing = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.12, 0.12), materials.cyan);
+    drone.position.set(side * 2.55, -0.2, 0.05);
+    drone.add(droneWing);
+    drone.visible = false;
+    ship.add(drone);
+    return drone;
+  });
+
   ship.scale.setScalar(0.45);
   ship.position.set(0, -8, 0);
   ship.userData = {
@@ -255,6 +309,10 @@ function createPlayer() {
     velocityY: 0,
     thrusters,
     engineLight,
+    drones,
+    beam: null,
+    beamDamageTimer: 0,
+    beamSoundTimer: 0,
   };
   world.add(ship);
   return ship;
@@ -262,61 +320,59 @@ function createPlayer() {
 
 function createEnemy(type, row, col) {
   const enemy = new THREE.Group();
-  const primary = {
-    ace: materials.yellow,
-    guard: materials.pink,
-    scout: materials.violet,
-    bomber: materials.orange,
-    phantom: materials.cyan,
-    lancer: materials.white,
-  }[type];
+  const primary = enemyWireMaterials[type].clone();
+  const auraMaterial = shipGlowMaterials[type].clone();
 
-  const coreGeometry = type === "bomber"
-    ? new THREE.DodecahedronGeometry(0.68, 0)
-    : type === "phantom"
-      ? new THREE.TetrahedronGeometry(0.7, 0)
-      : new THREE.OctahedronGeometry(type === "ace" ? 0.7 : 0.58, 0);
-  const core = new THREE.Mesh(coreGeometry, primary);
-  core.scale.y = 1.2;
-  enemy.add(core);
+  const enemyAura = new THREE.Mesh(
+    new THREE.PlaneGeometry(type === "bomber" ? 2.9 : type === "ace" ? 2.55 : 2.25, type === "lancer" ? 2.7 : 2.25),
+    auraMaterial
+  );
+  enemyAura.position.z = -0.32;
+  enemy.add(enemyAura);
 
-  const wingShape = new THREE.Shape();
-  wingShape.moveTo(0, 0.3);
-  wingShape.lineTo(1.15, 0.75);
-  wingShape.lineTo(0.82, -0.55);
-  wingShape.lineTo(0, -0.25);
-  const wing = new THREE.Mesh(new THREE.ShapeGeometry(wingShape), materials.enemyWing);
-  wing.position.z = -0.03;
-  enemy.add(wing);
-  const wing2 = wing.clone();
-  wing2.scale.x = -1;
-  enemy.add(wing2);
+  const addPiece = (geometry, material, position = [0, 0, 0], rotation = [0, 0, 0]) => {
+    const piece = new THREE.Mesh(geometry, material);
+    piece.position.set(...position);
+    piece.rotation.set(...rotation);
+    enemy.add(piece);
+    return piece;
+  };
 
-  const eye = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.13, 0.22), materials.cyan);
-  eye.position.set(0, -0.08, 0.58);
-  enemy.add(eye);
-
-  if (type === "bomber") {
-    [-0.92, 0.92].forEach((x) => {
-      const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.9, 8), materials.dark);
-      pod.position.set(x, -0.28, 0.05);
-      enemy.add(pod);
-      const port = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.055, 5, 10), materials.orange);
-      port.position.set(x, -0.72, 0.06);
-      port.rotation.x = Math.PI / 2;
-      enemy.add(port);
-    });
-  } else if (type === "phantom") {
-    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.07, 6, 18), materials.cyan);
-    halo.scale.y = 0.55;
-    halo.position.z = -0.05;
-    enemy.add(halo);
-  } else if (type === "lancer") {
-    const lance = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1.35, 5), materials.white);
-    lance.position.set(0, -0.72, 0.1);
-    lance.rotation.z = Math.PI;
-    enemy.add(lance);
-  }
+  const profiles = {
+    scout: {
+      body: () => new THREE.TetrahedronGeometry(0.52, 0),
+      bodyScale: [0.72, 1.3, 0.7],
+      bodyRotation: [0, 0, Math.PI / 4],
+    },
+    guard: {
+      body: () => new THREE.OctahedronGeometry(0.56, 0),
+      bodyScale: [0.82, 1.2, 0.78],
+      bodyRotation: [0, 0, 0],
+    },
+    ace: {
+      body: () => new THREE.ConeGeometry(0.48, 1.42, 4),
+      bodyScale: [1, 1, 1],
+      bodyRotation: [0, 0, Math.PI],
+    },
+    bomber: {
+      body: () => new THREE.DodecahedronGeometry(0.62, 0),
+      bodyScale: [1.18, 0.9, 0.72],
+      bodyRotation: [0.18, 0.34, Math.PI / 10],
+    },
+    phantom: {
+      body: () => new THREE.ConeGeometry(0.5, 1.3, 3),
+      bodyScale: [1, 1, 0.72],
+      bodyRotation: [0, 0, Math.PI],
+    },
+    lancer: {
+      body: () => new THREE.ConeGeometry(0.3, 1.72, 4),
+      bodyScale: [1, 1, 1],
+      bodyRotation: [0, 0, Math.PI],
+    },
+  };
+  const profile = profiles[type];
+  const hull = addPiece(profile.body(), primary, [0, -0.08, 0.1], profile.bodyRotation);
+  hull.scale.set(...profile.bodyScale);
 
   const hp = {
     ace: 3 + Math.floor(state.stage / 3),
@@ -341,6 +397,10 @@ function createEnemy(type, row, col) {
     diving: false,
     diveT: 0,
     diveStart: new THREE.Vector3(),
+    respawning: false,
+    respawnT: 0,
+    wireMaterial: primary,
+    auraMaterial,
   };
   world.add(enemy);
   enemies.push(enemy);
@@ -348,12 +408,12 @@ function createEnemy(type, row, col) {
 }
 
 function spawnStage() {
-  clearEntities();
+  clearEntities({ preservePowerups: true });
   state.formationTime = 0;
   state.enemyFireTimer = Math.max(0.213, 0.769 - state.stage * 0.0385);
   const rows = Math.min(5, 3 + Math.floor(state.stage / 2));
   const cols = Math.min(10, 6 + state.stage);
-  const spacingX = Math.min(2.65, 17 / (cols - 1));
+  const spacingX = Math.min(2.85, 18 / (cols - 1));
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
@@ -364,37 +424,144 @@ function spawnStage() {
       if (state.stage >= 4 && row === 2 && col % 3 === 2) type = "lancer";
       const e = createEnemy(type, row, col);
       e.userData.homeX = (col - (cols - 1) / 2) * spacingX;
-      e.userData.homeY = 7.6 - row * 2.05;
+      e.userData.homeY = 7.6 - row * 2.25;
       e.position.set(e.userData.homeX, 18 + row * 2, 0);
     }
   }
 }
 
-function clearEntities() {
-  [...enemies, ...playerShots, ...enemyShots, ...powerups, ...particles].forEach((o) => world.remove(o));
-  enemies.length = playerShots.length = enemyShots.length = powerups.length = particles.length = 0;
+function clearEntities({ preservePowerups = false } = {}) {
+  const removable = [
+    ...enemies,
+    ...playerShots,
+    ...enemyShots,
+    ...particles,
+    ...(preservePowerups ? [] : powerups),
+  ];
+  removable.forEach((object) => world.remove(object));
+  enemies.length = 0;
+  playerShots.length = 0;
+  enemyShots.length = 0;
+  particles.length = 0;
+  if (!preservePowerups) powerups.length = 0;
 }
 
-function shootPlayer() {
+function spawnPlayerProjectile(offsetX, {
+  vx = 0,
+  vy = 18,
+  damage = 1,
+  homing = false,
+  originY = 0.76,
+} = {}) {
+  const strong = state.powers.overdrive > 0;
+  const shot = new THREE.Mesh(
+    homing
+      ? new THREE.ConeGeometry(0.16, 0.58, 5)
+      : new THREE.BoxGeometry(0.12, strong ? 0.95 : 0.7, 0.14),
+    homing ? materials.homingShot : materials.playerShot
+  );
+  const glow = new THREE.Mesh(
+    new THREE.PlaneGeometry(homing ? 0.86 : 0.72, homing ? 1.15 : strong ? 1.75 : 1.4),
+    homing ? materials.homingShotGlow : materials.playerShotGlow
+  );
+  glow.position.z = -0.08;
+  shot.add(glow);
+  shot.position.set(player.position.x + offsetX, player.position.y + originY, 0);
+  shot.userData = {
+    vx,
+    vy,
+    damage,
+    homing,
+    radius: homing ? 0.3 : 0.24,
+  };
+  world.add(shot);
+  playerShots.push(shot);
+}
+
+function shootPlayer(auxiliaryOnly = false) {
   if (!player || player.userData.fireTimer > 0 || state.mode !== "playing") return;
   const strong = state.powers.overdrive > 0;
-  const spread = strong ? [-0.36, 0, 0.36] : [-0.24, 0.24];
-  spread.forEach((offset, index) => {
-    if (!strong && index > 1) return;
-    const shot = new THREE.Mesh(new THREE.BoxGeometry(0.12, strong ? 0.95 : 0.7, 0.14), materials.playerShot);
+  const baseShots = strong ? [-0.36, 0, 0.36] : [-0.24, 0.24];
+  if (!auxiliaryOnly) {
+    baseShots.forEach((offset) => {
+      spawnPlayerProjectile(offset, {
+        vy: strong ? 21 : 18,
+        damage: strong ? 2 : 1,
+      });
+    });
+    if (state.powers.drones > 0) {
+      [-1.15, 1.15].forEach((offset) => {
+        spawnPlayerProjectile(offset, { vy: strong ? 21 : 18, damage: strong ? 2 : 1, originY: 0.5 });
+      });
+    }
+  }
+  if (state.powers.homing > 0) {
+    spawnPlayerProjectile(0, { vy: 12, damage: strong ? 2 : 1, homing: true, originY: 0.58 });
+  }
+  if (state.powers.spread > 0) {
+    spawnPlayerProjectile(-0.38, { vx: -7.2, vy: 16, damage: strong ? 2 : 1 });
+    spawnPlayerProjectile(0.38, { vx: 7.2, vy: 16, damage: strong ? 2 : 1 });
+  }
+  player.userData.fireTimer = strong ? 0.12 : 0.22;
+  if (!auxiliaryOnly) sfx("shoot");
+}
+
+function createPlasmaBeam() {
+  const beam = new THREE.Group();
+  beam.userData.columns = [-1.15, 0, 1.15].map((offset) => {
+    const column = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16, 1, 0.12),
+      new THREE.MeshBasicMaterial({ color: 0xc8ffff })
+    );
     const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.72, strong ? 1.75 : 1.4),
-      materials.playerShotGlow
+      new THREE.PlaneGeometry(0.86, 1),
+      projectileGlowMaterial(0x72f7ff)
     );
     glow.position.z = -0.08;
-    shot.add(glow);
-    shot.position.set(player.position.x + offset, player.position.y + 0.76, 0);
-    shot.userData = { vy: strong ? 21 : 18, damage: strong ? 2 : 1, radius: 0.24 };
-    world.add(shot);
-    playerShots.push(shot);
+    column.position.x = offset;
+    column.add(glow);
+    beam.add(column);
+    return column;
   });
-  player.userData.fireTimer = strong ? 0.12 : 0.22;
-  sfx("shoot");
+  beam.visible = false;
+  world.add(beam);
+  return beam;
+}
+
+function updatePlasmaBeam(dt, firing) {
+  if (!player.userData.beam) player.userData.beam = createPlasmaBeam();
+  const beam = player.userData.beam;
+  const active = firing && state.powers.plasma > 0 && state.mode === "playing";
+  beam.visible = active;
+  if (!active) return;
+
+  const hasDrones = state.powers.drones > 0;
+  const length = 14 - player.position.y;
+  beam.position.set(player.position.x, player.position.y + length / 2, 0);
+  beam.userData.columns.forEach((column, index) => {
+    column.visible = index === 1 || hasDrones;
+    column.scale.y = length;
+  });
+
+  player.userData.beamDamageTimer -= dt;
+  player.userData.beamSoundTimer -= dt;
+  if (player.userData.beamSoundTimer <= 0) {
+    sfx("shoot");
+    player.userData.beamSoundTimer = 0.18;
+  }
+  if (player.userData.beamDamageTimer > 0) return;
+
+  const beamOffsets = hasDrones ? [-1.15, 0, 1.15] : [0];
+  for (const enemy of [...enemies]) {
+    if (!enemies.includes(enemy) || enemy.position.y <= player.position.y) continue;
+    if (beamOffsets.some((offset) => Math.abs(enemy.position.x - player.position.x - offset) < enemy.userData.radius + 0.14)) {
+      killEnemy(enemy, {
+        position: enemy.position,
+        userData: { damage: 1 },
+      });
+    }
+  }
+  player.userData.beamDamageTimer = 0.12;
 }
 
 function shootEnemy(enemy) {
@@ -426,15 +593,19 @@ function shootEnemy(enemy) {
 
 function spawnPowerup(position) {
   const kinds = Object.values(POWER_DEFS);
-  const kind = Math.random() < 0.1
+  const rareRoll = Math.random();
+  const kind = rareRoll < 0.1
     ? EXTRA_SHIP_POWER
-    : kinds[Math.floor(Math.random() * kinds.length)];
+    : rareRoll < 0.2
+      ? NOVA_POWER
+      : kinds[Math.floor(Math.random() * kinds.length)];
+  const isExtraShip = kind.type === "extra-ship";
   const group = new THREE.Group();
 
   const haloMaterial = new THREE.ShaderMaterial({
     uniforms: {
       glowColor: { value: new THREE.Color(kind.color) },
-      glowStrength: { value: 0.52 },
+      glowStrength: { value: isExtraShip ? 0.88 : 0.52 },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -457,7 +628,8 @@ function spawnPowerup(position) {
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const halo = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), haloMaterial);
+  const haloSize = isExtraShip ? 3.35 : 2.6;
+  const halo = new THREE.Mesh(new THREE.PlaneGeometry(haloSize, haloSize), haloMaterial);
   halo.position.z = -0.22;
   group.add(halo);
 
@@ -469,7 +641,7 @@ function spawnPowerup(position) {
     depthWrite: false,
   });
   const outerRing = new THREE.Mesh(
-    new THREE.TorusGeometry(0.63, 0.055, 8, 28),
+    new THREE.TorusGeometry(isExtraShip ? 0.72 : 0.63, isExtraShip ? 0.072 : 0.055, 8, 28),
     ringMaterial
   );
   outerRing.rotation.z = Math.PI / 4;
@@ -483,13 +655,20 @@ function spawnPowerup(position) {
   innerRing.rotation.y = 0.35;
   group.add(innerRing);
 
-  const coreGeometry = kind.type === "overdrive"
-    ? new THREE.TetrahedronGeometry(0.36, 0)
-    : kind.type === "chrono"
-      ? new THREE.TorusKnotGeometry(0.23, 0.065, 40, 6)
-      : kind.type === "extra-ship"
-        ? new THREE.ConeGeometry(0.3, 0.72, 4)
-        : new THREE.IcosahedronGeometry(0.34, 0);
+  const coreGeometries = {
+    overdrive: () => new THREE.TetrahedronGeometry(0.36, 0),
+    chrono: () => new THREE.TorusKnotGeometry(0.23, 0.065, 40, 6),
+    shield: () => new THREE.IcosahedronGeometry(0.34, 0),
+    plasma: () => new THREE.BoxGeometry(0.18, 0.72, 0.18),
+    homing: () => new THREE.ConeGeometry(0.24, 0.62, 5),
+    drones: () => new THREE.OctahedronGeometry(0.34, 0),
+    magnet: () => new THREE.TorusGeometry(0.3, 0.09, 6, 14),
+    multiplier: () => new THREE.BoxGeometry(0.44, 0.44, 0.28),
+    spread: () => new THREE.TetrahedronGeometry(0.38, 0),
+    "extra-ship": () => new THREE.ConeGeometry(0.3, 0.72, 4),
+    nova: () => new THREE.DodecahedronGeometry(0.34, 0),
+  };
+  const coreGeometry = coreGeometries[kind.type]();
   const core = new THREE.Mesh(coreGeometry, mat(0xffffff, kind.color, 2.8));
   if (kind.type === "overdrive") core.scale.y = 1.35;
   group.add(core);
@@ -505,7 +684,32 @@ function spawnPowerup(position) {
   });
   group.add(orbit);
 
-  const light = new THREE.PointLight(kind.color, 7.5, 5.5);
+  let starburst = null;
+  let accentLight = null;
+  if (isExtraShip) {
+    starburst = new THREE.Group();
+    const rayMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.72,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    for (let i = 0; i < 8; i++) {
+      const ray = new THREE.Mesh(new THREE.PlaneGeometry(0.055, 0.48), rayMaterial);
+      const angle = i / 8 * Math.PI * 2;
+      ray.position.set(Math.cos(angle) * 0.91, Math.sin(angle) * 0.91, -0.03);
+      ray.rotation.z = angle - Math.PI / 2;
+      starburst.add(ray);
+    }
+    group.add(starburst);
+
+    accentLight = new THREE.PointLight(COLORS.cyan, 8.5, 6.5);
+    accentLight.position.set(0, 0, 0.45);
+    group.add(accentLight);
+  }
+
+  const light = new THREE.PointLight(kind.color, isExtraShip ? 12 : 7.5, isExtraShip ? 7 : 5.5);
   light.position.z = 0.65;
   group.add(light);
 
@@ -521,6 +725,9 @@ function spawnPowerup(position) {
     core,
     orbit,
     light,
+    starburst,
+    accentLight,
+    sparkleTimer: Math.random() * 0.05,
   };
   world.add(group);
   powerups.push(group);
@@ -532,6 +739,23 @@ function activatePowerup(p) {
     state.lives++;
     updateHud();
     burst(p.position, p.userData.color, 36);
+    sfx("power");
+    return;
+  }
+  if (type === "nova") {
+    for (let i = enemyShots.length - 1; i >= 0; i--) {
+      burst(enemyShots[i].position, COLORS.pink, 4);
+      removeAt(enemyShots, i);
+    }
+    for (const enemy of [...enemies]) {
+      killEnemy(enemy, {
+        position: enemy.position,
+        userData: { damage: 3 },
+      });
+    }
+    state.shake = 0.45;
+    flash();
+    burst(p.position, p.userData.color, 55);
     sfx("power");
     return;
   }
@@ -588,6 +812,35 @@ function burst(position, color, count = 14) {
   }
 }
 
+function emitPowerupSparkles(powerup) {
+  for (let i = 0; i < 2; i++) {
+    const sparkle = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.035 + Math.random() * 0.055, 0),
+      new THREE.MeshBasicMaterial({
+        color: Math.random() > 0.28 ? powerup.userData.color : 0xffffff,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    sparkle.position.copy(powerup.position);
+    sparkle.position.x += (Math.random() - 0.5) * 0.7;
+    sparkle.position.y += (Math.random() - 0.5) * 0.28;
+    sparkle.position.z += (Math.random() - 0.5) * 0.35;
+    const life = (0.38 + Math.random() * 0.38) * 5;
+    sparkle.userData = {
+      vx: (Math.random() - 0.5) * 0.8,
+      vy: 0.15 + Math.random() * 0.55,
+      vz: (Math.random() - 0.5) * 0.7,
+      life,
+      maxLife: life,
+      sparkle: true,
+    };
+    world.add(sparkle);
+    particles.push(sparkle);
+  }
+}
+
 function hitPlayer() {
   if (player.userData.invulnerable > 0 || state.mode !== "playing") return;
   if (state.powers.shield > 0) {
@@ -633,11 +886,12 @@ function killEnemy(enemy, shot) {
     phantom: 400,
     lancer: 600,
   }[enemy.userData.type];
-  state.score += points * state.stage;
+  const scoreMultiplier = state.powers.multiplier > 0 ? 2 : 1;
+  state.score += points * state.stage * scoreMultiplier;
   updateHud();
   state.shake = 0.13;
   sfx("explode");
-  if (Math.random() < Math.min(0.1375, 0.046875 + state.stage * 0.005)) spawnPowerup(enemy.position);
+  if (Math.random() < Math.min(0.165, 0.05625 + state.stage * 0.006)) spawnPowerup(enemy.position);
   world.remove(enemy);
   enemies.splice(enemies.indexOf(enemy), 1);
   if (enemies.length === 0) completeStage();
@@ -645,21 +899,24 @@ function killEnemy(enemy, shot) {
 
 function completeStage() {
   state.mode = "transition";
-  state.score += 1000 * state.stage;
+  if (player?.userData.beam) player.userData.beam.visible = false;
+  const stageBonus = 1000 * state.stage * (state.powers.multiplier > 0 ? 2 : 1);
+  state.score += stageBonus;
   updateHud();
-  showMessage("WAVE ERASED", `STAGE ${String(state.stage).padStart(2, "0")} CLEAR`, `BONUS +${1000 * state.stage}`, 1700);
+  sfx("success");
+  showMessage("WAVE ERASED", `STAGE ${String(state.stage).padStart(2, "0")} CLEAR`, `BONUS +${stageBonus}`, 950);
   setTimeout(() => {
     if (state.mode !== "transition") return;
     state.stage++;
     updateHud();
-    showMessage("WARNING // THREAT RISING", `STAGE ${String(state.stage).padStart(2, "0")}`, stageSubtitle(), 1500);
+    showMessage("WARNING // THREAT RISING", `STAGE ${String(state.stage).padStart(2, "0")}`, stageSubtitle(), 750);
     setTimeout(() => {
       if (state.mode !== "transition") return;
       spawnStage();
       state.mode = "playing";
       ui.message.classList.remove("visible");
-    }, 1500);
-  }, 1750);
+    }, 750);
+  }, 1000);
 }
 
 function stageSubtitle() {
@@ -789,7 +1046,10 @@ function closeLeaderboard() {
 }
 
 function resetGame() {
+  stopMusic();
+  musicStep = 0;
   clearEntities();
+  if (player?.userData.beam) world.remove(player.userData.beam);
   if (player) world.remove(player);
   Object.assign(state, {
     mode: "transition",
@@ -798,7 +1058,7 @@ function resetGame() {
     stage: 1,
     lives: 3,
     formationTime: 0,
-    powers: { overdrive: 0, chrono: 0, shield: 0 },
+    powers: Object.fromEntries(Object.keys(POWER_DEFS).map((type) => [type, 0])),
     shake: 0,
   });
   player = createPlayer();
@@ -808,6 +1068,7 @@ function resetGame() {
   ui.pause.textContent = "PAUSE";
   updateHud();
   initAudio();
+  startMusic();
   showMessage("SYSTEM ONLINE", "STAGE 01", "THE FIRST WAVE APPROACHES");
   setTimeout(() => {
     if (state.mode !== "transition") return;
@@ -823,6 +1084,9 @@ function endGame() {
   ui.finalScore.textContent = String(state.score).padStart(6, "0");
   ui.finalStage.textContent = String(Math.max(0, state.stage - (enemies.length ? 1 : 0))).padStart(2, "0");
   ui.gameOver.classList.add("visible");
+  if (player?.userData.beam) player.userData.beam.visible = false;
+  stopMusic();
+  sfx("gameover");
   submitGameScore();
 }
 
@@ -831,8 +1095,14 @@ function togglePause() {
   state.paused = !state.paused;
   state.mode = state.paused ? "paused" : "playing";
   ui.pause.textContent = state.paused ? "RESUME" : "PAUSE";
-  if (state.paused) showMessage("SIGNAL SUSPENDED", "PAUSED", "PRESS P TO RETURN");
-  else ui.message.classList.remove("visible");
+  if (state.paused) {
+    if (player?.userData.beam) player.userData.beam.visible = false;
+    stopMusic();
+    showMessage("SIGNAL SUSPENDED", "PAUSED", "PRESS P TO RETURN");
+  } else {
+    startMusic();
+    ui.message.classList.remove("visible");
+  }
 }
 
 function flash() {
@@ -846,19 +1116,280 @@ function initAudio() {
   if (audio.state === "suspended") audio.resume();
 }
 
+const MUSIC_BPM = 132;
+const MUSIC_STEP_SECONDS = 60 / MUSIC_BPM / 4;
+const ASSAULT_MUSIC_BPM = 160;
+const ASSAULT_MUSIC_STEP_SECONDS = 60 / ASSAULT_MUSIC_BPM / 4;
+const MUSIC_CHORDS = [
+  [50, 53, 57, 60], // Dm7
+  [46, 50, 53, 57], // Bbmaj7
+  [53, 57, 60, 64], // Fmaj7
+  [48, 52, 55, 62], // Cadd9
+];
+const MUSIC_BASS = [26, 22, 29, 24];
+const ASSAULT_MUSIC_CHORDS = [
+  [50, 53, 57, 62], // Dm
+  [48, 52, 55, 60], // C
+  [46, 50, 53, 58], // Bb
+  [45, 49, 52, 57], // A
+];
+const ASSAULT_MUSIC_BASS = [26, 24, 22, 21];
+
+function midiFrequency(note) {
+  return 440 * 2 ** ((note - 69) / 12);
+}
+
+function scheduleTone(note, time, duration, {
+  type = "triangle",
+  volume = 0.02,
+  attack = 0.01,
+  cutoff = 2200,
+  detune = 0,
+} = {}) {
+  if (!audio || !musicBus) return;
+  const oscillator = audio.createOscillator();
+  const gain = audio.createGain();
+  const filter = audio.createBiquadFilter();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(midiFrequency(note), time);
+  oscillator.detune.setValueAtTime(detune, time);
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(cutoff, time);
+  filter.Q.setValueAtTime(1.2, time);
+  gain.gain.setValueAtTime(0.0001, time);
+  gain.gain.exponentialRampToValueAtTime(volume, time + attack);
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+  oscillator.connect(filter);
+  filter.connect(gain);
+  gain.connect(musicBus);
+  oscillator.start(time);
+  oscillator.stop(time + duration + 0.03);
+}
+
+function scheduleMusicStep(step, time) {
+  const barStep = step % 16;
+  const chordIndex = Math.floor(step / 16) % MUSIC_CHORDS.length;
+  const chord = MUSIC_CHORDS[chordIndex];
+
+  // Warm seventh-chord beds bring back the first cue's open, vaporwave space.
+  if (barStep === 0) {
+    chord.forEach((note, index) => {
+      scheduleTone(note, time, MUSIC_STEP_SECONDS * 11.5, {
+        type: index % 2 ? "triangle" : "sine",
+        volume: 0.01,
+        attack: 0.1,
+        cutoff: 1450,
+        detune: index % 2 ? 5 : -5,
+      });
+    });
+  }
+
+  // A brighter inversion at the midpoint turns the pad into an arcade chord hit.
+  if (barStep === 8) {
+    [chord[0] + 12, chord[2] + 12, chord[3] + 12].forEach((note) => {
+      scheduleTone(note, time, MUSIC_STEP_SECONDS * 2.8, {
+        type: "sawtooth",
+        volume: 0.008,
+        attack: 0.006,
+        cutoff: 2100,
+      });
+    });
+  }
+
+  // Syncopated octave bass retains the second cue's forward thrust.
+  const bassSteps = [0, 3, 6, 8, 11, 14];
+  const bassIndex = bassSteps.indexOf(barStep);
+  if (bassIndex !== -1) {
+    const octave = bassIndex === 2 || bassIndex === 5 ? 12 : 0;
+    scheduleTone(MUSIC_BASS[chordIndex] + octave, time, MUSIC_STEP_SECONDS * 1.35, {
+      type: "sawtooth",
+      volume: octave ? 0.017 : 0.027,
+      attack: 0.004,
+      cutoff: octave ? 820 : 580,
+    });
+  }
+
+  // Each bar grows from spacious eighth notes into a sixteenth-note pursuit.
+  const pulseActive = barStep < 8 ? barStep % 2 === 0 : true;
+  if (pulseActive) {
+    const arpPattern = [0, 2, 1, 3, 2, 1, 3, 1, 0, 1, 2, 3, 2, 1, 3, 2];
+    const arpOctave = barStep === 15 ? 24 : 12;
+    scheduleTone(chord[arpPattern[barStep]] + arpOctave, time, MUSIC_STEP_SECONDS * 0.75, {
+      type: "square",
+      volume: barStep % 4 === 0 ? 0.008 : 0.005,
+      attack: 0.002,
+      cutoff: 2850,
+    });
+  }
+
+  // Sparse triangle-wave answers add a memorable space-action melody.
+  const leadSteps = [2, 7, 10, 15];
+  const leadIndex = leadSteps.indexOf(barStep);
+  if (leadIndex !== -1) {
+    const leadPattern = [2, 3, 1, 2];
+    scheduleTone(chord[leadPattern[leadIndex]] + 24, time, MUSIC_STEP_SECONDS * 2.1, {
+      type: "triangle",
+      volume: 0.0085,
+      attack: 0.01,
+      cutoff: 3600,
+    });
+  }
+}
+
+function scheduleAssaultMusicStep(step, time) {
+  const barStep = step % 16;
+  const chordIndex = Math.floor(step / 16) % ASSAULT_MUSIC_CHORDS.length;
+  const chord = ASSAULT_MUSIC_CHORDS[chordIndex];
+
+  // Shorter, darker chord beds preserve the vaporwave harmony without softening the pace.
+  if (barStep === 0 || barStep === 8) {
+    const inversion = barStep === 8 ? [chord[1], chord[2], chord[3]] : chord;
+    inversion.forEach((note, index) => {
+      scheduleTone(note + (barStep === 8 ? 12 : 0), time, ASSAULT_MUSIC_STEP_SECONDS * 6.5, {
+        type: index % 2 ? "triangle" : "sine",
+        volume: barStep === 8 ? 0.006 : 0.007,
+        attack: 0.018,
+        cutoff: barStep === 8 ? 2100 : 1200,
+        detune: index % 2 ? 6 : -6,
+      });
+    });
+  }
+
+  // A lighter syncopated bass line keeps the second cue moving without crowding it.
+  const bassPattern = [0, 0, 12, 0, 0, 12, 0, 7, 0, 12, 0, 0, 12, 0, 7, 12];
+  if (barStep % 2 === 0 || [7, 15].includes(barStep)) {
+    scheduleTone(ASSAULT_MUSIC_BASS[chordIndex] + bassPattern[barStep], time, ASSAULT_MUSIC_STEP_SECONDS * 0.82, {
+      type: "sawtooth",
+      volume: barStep % 4 === 0 ? 0.023 : 0.016,
+      attack: 0.002,
+      cutoff: barStep % 4 === 0 ? 680 : 880,
+    });
+  }
+
+  // Broken sixteenth-note motion keeps the pursuit moving while leaving breathing room.
+  const arpPattern = [0, 2, 1, 3, 1, 2, 3, 2, 0, 3, 1, 2, 3, 1, 2, 3];
+  if (![1, 5, 9, 13].includes(barStep)) {
+    const arpOctave = [3, 7, 11, 15].includes(barStep) ? 24 : 12;
+    scheduleTone(chord[arpPattern[barStep]] + arpOctave, time, ASSAULT_MUSIC_STEP_SECONDS * 0.68, {
+      type: "square",
+      volume: barStep % 4 === 0 ? 0.0075 : 0.0048,
+      attack: 0.002,
+      cutoff: 3000,
+    });
+  }
+
+  // Angular lead bursts answer the arpeggio without introducing percussion.
+  const leadPattern = [2, null, null, 2, null, null, 2, 3, 2, null, null, 1, null, null, 3, 2];
+  const leadNote = leadPattern[barStep];
+  if (leadNote !== null) {
+    scheduleTone(chord[leadNote] + 24 + (barStep >= 12 ? 12 : 0), time, ASSAULT_MUSIC_STEP_SECONDS * 1.25, {
+      type: "triangle",
+      volume: barStep % 4 === 0 ? 0.0085 : 0.0058,
+      attack: 0.005,
+      cutoff: 3800,
+    });
+  }
+}
+
+function startMusic() {
+  if (!state.sound || musicTimer || !["playing", "transition"].includes(state.mode)) return;
+  initAudio();
+  musicBus = audio.createGain();
+  const compressor = audio.createDynamicsCompressor();
+  musicBus.gain.setValueAtTime(0.42, audio.currentTime);
+  compressor.threshold.setValueAtTime(-22, audio.currentTime);
+  compressor.knee.setValueAtTime(18, audio.currentTime);
+  compressor.ratio.setValueAtTime(4, audio.currentTime);
+  musicBus.connect(compressor);
+  compressor.connect(audio.destination);
+  nextMusicTime = audio.currentTime + 0.06;
+  musicTimer = window.setInterval(() => {
+    while (nextMusicTime < audio.currentTime + 0.12) {
+      const requestedTrack = state.stage >= 6 ? "assault" : "original";
+      if (activeMusicTrack !== requestedTrack) {
+        activeMusicTrack = requestedTrack;
+        musicStep = 0;
+      }
+      if (requestedTrack === "assault") scheduleAssaultMusicStep(musicStep, nextMusicTime);
+      else scheduleMusicStep(musicStep, nextMusicTime);
+      musicStep = (musicStep + 1) % 64;
+      nextMusicTime += requestedTrack === "assault" ? ASSAULT_MUSIC_STEP_SECONDS : MUSIC_STEP_SECONDS;
+    }
+  }, 25);
+}
+
+function stopMusic() {
+  if (musicTimer) {
+    clearInterval(musicTimer);
+    musicTimer = null;
+  }
+  if (musicBus && audio) {
+    const oldBus = musicBus;
+    musicBus = null;
+    oldBus.gain.cancelScheduledValues(audio.currentTime);
+    oldBus.gain.setValueAtTime(Math.max(0.0001, oldBus.gain.value), audio.currentTime);
+    oldBus.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.08);
+    window.setTimeout(() => oldBus.disconnect(), 150);
+  }
+}
+
 function sfx(kind) {
   if (!state.sound || !audio) return;
+  if (kind === "gameover") {
+    const now = audio.currentTime + 0.04;
+    const notes = [392, 329.63, 261.63, 196];
+    notes.forEach((frequency, index) => {
+      const start = now + index * 0.16;
+      const duration = index === notes.length - 1 ? 0.65 : 0.22;
+      const oscillator = audio.createOscillator();
+      const filter = audio.createBiquadFilter();
+      const gain = audio.createGain();
+      oscillator.type = index === notes.length - 1 ? "sawtooth" : "triangle";
+      oscillator.frequency.setValueAtTime(frequency, start);
+      if (index === notes.length - 1) {
+        oscillator.frequency.exponentialRampToValueAtTime(98, start + duration);
+      }
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(index === notes.length - 1 ? 950 : 1800, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(index === notes.length - 1 ? 0.028 : 0.022, start + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      oscillator.connect(filter);
+      filter.connect(gain);
+      gain.connect(audio.destination);
+      oscillator.start(start);
+      oscillator.stop(start + duration + 0.03);
+    });
+    return;
+  }
+  if (kind === "success") {
+    const now = audio.currentTime;
+    [523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) => {
+      const oscillator = audio.createOscillator();
+      const gain = audio.createGain();
+      oscillator.type = index === 3 ? "square" : "triangle";
+      oscillator.frequency.setValueAtTime(frequency, now + index * 0.085);
+      gain.gain.setValueAtTime(0.0001, now + index * 0.085);
+      gain.gain.exponentialRampToValueAtTime(index === 3 ? 0.01875 : 0.024, now + index * 0.085 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.085 + 0.2);
+      oscillator.connect(gain);
+      gain.connect(audio.destination);
+      oscillator.start(now + index * 0.085);
+      oscillator.stop(now + index * 0.085 + 0.22);
+    });
+    return;
+  }
   const osc = audio.createOscillator();
   const gain = audio.createGain();
   osc.connect(gain);
   gain.connect(audio.destination);
   const now = audio.currentTime;
   const settings = {
-    shoot: [440, 210, 0.06, "sawtooth", 0.022],
-    enemy: [180, 90, 0.09, "sawtooth", 0.018],
-    hit: [130, 65, 0.08, "square", 0.03],
-    explode: [95, 28, 0.28, "sawtooth", 0.07],
-    power: [320, 1280, 0.45, "sine", 0.06],
+    shoot: [440, 210, 0.06, "sawtooth", 0.0165],
+    enemy: [180, 90, 0.09, "sawtooth", 0.0135],
+    hit: [130, 65, 0.08, "square", 0.0225],
+    explode: [95, 28, 0.28, "sawtooth", 0.035],
+    power: [320, 1280, 0.45, "sine", 0.045],
   }[kind];
   osc.type = settings[3];
   osc.frequency.setValueAtTime(settings[0], now);
@@ -907,11 +1438,19 @@ function updatePlayer(dt) {
     flame.material.opacity = 0.55 + thrustPulse * 0.24;
   });
   player.userData.engineLight.intensity = 5.5 + thrustPulse * 2.3;
+  const dronesActive = state.powers.drones > 0;
+  player.userData.drones.forEach((drone, index) => {
+    drone.visible = dronesActive;
+    drone.position.y = -0.2 + Math.sin(clock.elapsedTime * 4 + index * Math.PI) * 0.18;
+    drone.rotation.z += dt * (index === 0 ? -1.8 : 1.8);
+  });
   player.userData.fireTimer -= dt;
   player.userData.invulnerable -= dt;
   if (player.userData.invulnerable > 0) player.visible = Math.floor(player.userData.invulnerable * 12) % 2 === 0;
   else player.visible = true;
-  if (keys.has("Space") || pointerDown) shootPlayer();
+  const firing = keys.has("Space") || pointerDown;
+  updatePlasmaBeam(dt, firing);
+  if (firing) shootPlayer(state.powers.plasma > 0);
 }
 
 function updateEnemies(dt) {
@@ -928,9 +1467,27 @@ function updateEnemies(dt) {
     d.phase += enemyDt * 2.5;
     if (!d.diving) {
       const phantomDrift = d.type === "phantom" ? Math.sin(d.phase * 2.4) * 1.35 : 0;
-      enemy.position.x = d.homeX + sway + Math.sin(d.phase) * 0.09 + phantomDrift;
-      enemy.position.y = THREE.MathUtils.lerp(18 + d.row * 2, d.homeY + Math.sin(d.phase * 0.65) * 0.12, ease);
-      enemy.rotation.z = Math.sin(d.phase) * 0.12;
+      const formationX = d.homeX + sway + Math.sin(d.phase) * 0.09 + phantomDrift;
+      const formationY = d.homeY + Math.sin(d.phase * 0.65) * 0.12;
+      enemy.position.x = formationX;
+      if (d.respawning) {
+        d.respawnT += enemyDt;
+        const phaseIn = Math.min(1, d.respawnT / 0.8);
+        const phaseEase = phaseIn * phaseIn * (3 - 2 * phaseIn);
+        enemy.position.y = THREE.MathUtils.lerp(14, formationY, phaseEase);
+        enemy.rotation.z = (1 - phaseEase) * Math.PI * 1.5 + Math.sin(d.phase) * 0.12;
+        d.wireMaterial.opacity = 0.98 * phaseEase;
+        d.auraMaterial.uniforms.glowOpacity.value = phaseEase;
+        if (phaseIn >= 1) {
+          d.respawning = false;
+          d.respawnT = 0;
+          d.wireMaterial.opacity = 0.98;
+          d.auraMaterial.uniforms.glowOpacity.value = 1;
+        }
+      } else {
+        enemy.position.y = THREE.MathUtils.lerp(18 + d.row * 2, formationY, ease);
+        enemy.rotation.z = Math.sin(d.phase) * 0.12;
+      }
       enemy.rotation.y = Math.sin(d.phase * 0.7) * 0.24;
       if (d.type === "phantom") enemy.visible = true;
     } else {
@@ -945,7 +1502,11 @@ function updateEnemies(dt) {
       if (enemy.position.y < -13) {
         d.diving = false;
         d.diveT = 0;
+        d.respawning = true;
+        d.respawnT = 0;
         enemy.position.set(d.homeX, 14, 0);
+        d.wireMaterial.opacity = 0;
+        d.auraMaterial.uniforms.glowOpacity.value = 0;
         enemy.visible = true;
       }
     }
@@ -962,14 +1523,14 @@ function updateEnemies(dt) {
 
   if (entrance >= 1 && enemies.length) {
     if (state.enemyFireTimer <= 0) {
-      const candidates = enemies.filter((e) => e.position.y > -3);
+      const candidates = enemies.filter((e) => e.position.y > -3 && !e.userData.respawning);
       if (candidates.length) shootEnemy(candidates[Math.floor(Math.random() * candidates.length)]);
       state.enemyFireTimer = Math.max(0.165, 0.724 - state.stage * 0.0356) * (0.72 + Math.random() * 0.7);
     }
     const diving = enemies.filter((e) => e.userData.diving).length;
     const maxDivers = Math.min(4, 1 + Math.floor(state.stage / 3));
     if (diving < maxDivers && Math.random() < dt * (0.15 + state.stage * 0.055)) {
-      const candidates = enemies.filter((e) => !e.userData.diving && e.userData.row <= 2);
+      const candidates = enemies.filter((e) => !e.userData.diving && !e.userData.respawning && e.userData.row <= 2);
       const e = candidates[Math.floor(Math.random() * candidates.length)];
       if (e) {
         e.userData.diving = true;
@@ -983,6 +1544,25 @@ function updateEnemies(dt) {
 function updateProjectiles(dt) {
   for (let i = playerShots.length - 1; i >= 0; i--) {
     const shot = playerShots[i];
+    if (shot.userData.homing && enemies.length) {
+      let target = enemies[0];
+      let nearestDistance = Infinity;
+      for (const enemy of enemies) {
+        const distance = shot.position.distanceToSquared(enemy.position);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          target = enemy;
+        }
+      }
+      const dx = target.position.x - shot.position.x;
+      const dy = target.position.y - shot.position.y;
+      const length = Math.hypot(dx, dy) || 1;
+      const turn = 1 - Math.exp(-dt * 7);
+      shot.userData.vx = THREE.MathUtils.lerp(shot.userData.vx, dx / length * 15, turn);
+      shot.userData.vy = THREE.MathUtils.lerp(shot.userData.vy, dy / length * 15, turn);
+      shot.rotation.z = -Math.atan2(shot.userData.vx, shot.userData.vy);
+    }
+    shot.position.x += shot.userData.vx * dt;
     shot.position.y += shot.userData.vy * dt;
     let hit = false;
     for (let j = enemies.length - 1; j >= 0; j--) {
@@ -992,7 +1572,7 @@ function updateProjectiles(dt) {
         break;
       }
     }
-    if (hit || shot.position.y > 14) removeAt(playerShots, i);
+    if (hit || shot.position.y > 14 || shot.position.y < -13 || Math.abs(shot.position.x) > 17) removeAt(playerShots, i);
   }
 
   const enemyProjectileDt = state.powers.chrono > 0 ? dt * 0.48 : dt;
@@ -1014,7 +1594,20 @@ function updatePowerups(dt) {
     const p = powerups[i];
     const data = p.userData;
     data.phase += dt;
-    p.position.y += p.userData.vy * dt;
+    if (state.powers.magnet > 0) {
+      const dx = player.position.x - p.position.x;
+      const dy = player.position.y - p.position.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      p.position.x += dx / distance * 9 * dt;
+      p.position.y += (dy / distance * 9 + p.userData.vy * 0.2) * dt;
+    } else {
+      p.position.y += p.userData.vy * dt;
+    }
+    data.sparkleTimer -= dt;
+    if (data.sparkleTimer <= 0) {
+      emitPowerupSparkles(p);
+      data.sparkleTimer = 0.045;
+    }
     p.rotation.z += dt * 0.42;
     data.outerRing.rotation.z += dt * 1.6;
     data.outerRing.rotation.x = Math.sin(data.phase * 1.8) * 0.24;
@@ -1023,11 +1616,19 @@ function updatePowerups(dt) {
     data.core.rotation.x += dt * 1.35;
     data.core.rotation.y -= dt * 1.7;
     data.orbit.rotation.z -= dt * 2.8;
+    if (data.starburst) {
+      data.starburst.rotation.z += dt * 1.15;
+      data.starburst.scale.setScalar(0.92 + Math.sin(data.phase * 8) * 0.12);
+      data.starburst.children[0].material.opacity = 0.6 + Math.sin(data.phase * 7) * 0.2;
+      data.accentLight.intensity = 7.5 + Math.sin(data.phase * 9) * 3;
+    }
     const pulse = 1 + Math.sin(data.phase * 6) * 0.09;
     p.scale.setScalar(pulse);
-    data.halo.material.uniforms.glowStrength.value = 0.44 + Math.sin(data.phase * 5) * 0.12;
+    const haloBase = data.type === "extra-ship" ? 0.78 : 0.44;
+    const haloPulse = data.type === "extra-ship" ? 0.2 : 0.12;
+    data.halo.material.uniforms.glowStrength.value = haloBase + Math.sin(data.phase * 5) * haloPulse;
     data.halo.scale.setScalar(0.92 + Math.sin(data.phase * 4) * 0.1);
-    data.light.intensity = 6.2 + Math.sin(data.phase * 7) * 2.1;
+    data.light.intensity = (data.type === "extra-ship" ? 10.5 : 6.2) + Math.sin(data.phase * 7) * 2.1;
     if (intersects(p, player)) {
       activatePowerup(p);
       removeAt(powerups, i);
@@ -1055,6 +1656,11 @@ function updateParticles(dt) {
     p.userData.vy *= Math.pow(0.965, dt * 60);
     p.rotation.x += dt * 8;
     p.material.opacity = Math.max(0, p.userData.life / p.userData.maxLife);
+    if (p.userData.sparkle) {
+      const scale = Math.max(0.05, p.userData.life / p.userData.maxLife);
+      p.scale.setScalar(scale);
+      p.rotation.z += dt * 11;
+    }
     if (p.userData.life <= 0) removeAt(particles, i);
   }
 }
@@ -1133,7 +1739,12 @@ ui.pause.addEventListener("click", togglePause);
 ui.sound.addEventListener("click", () => {
   state.sound = !state.sound;
   ui.sound.textContent = `SOUND: ${state.sound ? "ON" : "OFF"}`;
-  if (state.sound) initAudio();
+  if (state.sound) {
+    initAudio();
+    startMusic();
+  } else {
+    stopMusic();
+  }
 });
 
 addEventListener("resize", () => {
