@@ -620,7 +620,7 @@ function killEnemy(enemy, shot) {
   updateHud();
   state.shake = 0.13;
   sfx("explode");
-  if (Math.random() < Math.min(0.11, 0.0375 + state.stage * 0.004)) spawnPowerup(enemy.position);
+  if (Math.random() < Math.min(0.1375, 0.046875 + state.stage * 0.005)) spawnPowerup(enemy.position);
   world.remove(enemy);
   enemies.splice(enemies.indexOf(enemy), 1);
   if (enemies.length === 0) completeStage();
