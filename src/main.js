@@ -66,6 +66,12 @@ const POWER_DEFS = {
   chrono: { type: "chrono", color: COLORS.cyan, icon: "◷", name: "CHRONO FIELD", duration: 11 },
   shield: { type: "shield", color: COLORS.pink, icon: "◇", name: "PHASE SHIELD", duration: 9 },
 };
+const EXTRA_SHIP_POWER = {
+  type: "extra-ship",
+  color: COLORS.white,
+  icon: "◆",
+  name: "EXTRA SHIP",
+};
 
 const state = {
   mode: "title",
@@ -420,7 +426,9 @@ function shootEnemy(enemy) {
 
 function spawnPowerup(position) {
   const kinds = Object.values(POWER_DEFS);
-  const kind = kinds[Math.floor(Math.random() * kinds.length)];
+  const kind = Math.random() < 0.2
+    ? EXTRA_SHIP_POWER
+    : kinds[Math.floor(Math.random() * kinds.length)];
   const group = new THREE.Group();
 
   const haloMaterial = new THREE.ShaderMaterial({
@@ -479,7 +487,9 @@ function spawnPowerup(position) {
     ? new THREE.TetrahedronGeometry(0.36, 0)
     : kind.type === "chrono"
       ? new THREE.TorusKnotGeometry(0.23, 0.065, 40, 6)
-      : new THREE.IcosahedronGeometry(0.34, 0);
+      : kind.type === "extra-ship"
+        ? new THREE.ConeGeometry(0.3, 0.72, 4)
+        : new THREE.IcosahedronGeometry(0.34, 0);
   const core = new THREE.Mesh(coreGeometry, mat(0xffffff, kind.color, 2.8));
   if (kind.type === "overdrive") core.scale.y = 1.35;
   group.add(core);
@@ -518,6 +528,13 @@ function spawnPowerup(position) {
 
 function activatePowerup(p) {
   const type = p.userData.type;
+  if (type === "extra-ship") {
+    state.lives++;
+    updateHud();
+    burst(p.position, p.userData.color, 36);
+    sfx("power");
+    return;
+  }
   state.powers[type] = POWER_DEFS[type].duration;
   syncPowerHud();
   burst(p.position, p.userData.color, 28);
@@ -978,10 +995,11 @@ function updateProjectiles(dt) {
     if (hit || shot.position.y > 14) removeAt(playerShots, i);
   }
 
+  const enemyProjectileDt = state.powers.chrono > 0 ? dt * 0.48 : dt;
   for (let i = enemyShots.length - 1; i >= 0; i--) {
     const shot = enemyShots[i];
-    shot.position.x += shot.userData.vx * dt;
-    shot.position.y += shot.userData.vy * dt;
+    shot.position.x += shot.userData.vx * enemyProjectileDt;
+    shot.position.y += shot.userData.vy * enemyProjectileDt;
     if (intersects(shot, player)) {
       hitPlayer();
       removeAt(enemyShots, i);

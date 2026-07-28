@@ -11,7 +11,7 @@ npm run dev
 
 Controls: arrow keys or WASD to fly in any direction, Space to fire, and P to pause. On touch devices, drag to move and hold to fire.
 
-Power-ups include triple-shot overdrive, a chrono field that slows enemy movement, and a phase shield that absorbs a hit.
+Power-ups include triple-shot overdrive, a chrono field that slows enemies and their bullets, a phase shield that absorbs a hit, and a rare extra-ship pickup.
 
 Enemy waves mix scouts, guards, aces, heavy bombers, flickering phantoms, and fast-diving lancers as the stages progress.
 
