@@ -426,7 +426,7 @@ function shootEnemy(enemy) {
 
 function spawnPowerup(position) {
   const kinds = Object.values(POWER_DEFS);
-  const kind = Math.random() < 0.2
+  const kind = Math.random() < 0.1
     ? EXTRA_SHIP_POWER
     : kinds[Math.floor(Math.random() * kinds.length)];
   const group = new THREE.Group();
