@@ -105,6 +105,31 @@ function mat(color, emissive = color, intensity = 1.4) {
   });
 }
 
+function projectileGlowMaterial(color) {
+  return new THREE.ShaderMaterial({
+    uniforms: { glowColor: { value: new THREE.Color(color) } },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 glowColor;
+      varying vec2 vUv;
+      void main() {
+        float radius = length((vUv - 0.5) * 2.0);
+        float alpha = pow(max(0.0, 1.0 - radius), 2.0) * 0.72;
+        gl_FragColor = vec4(glowColor, alpha);
+      }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+}
+
 const materials = {
   cyan: mat(COLORS.cyan),
   pink: mat(COLORS.pink),
@@ -116,6 +141,8 @@ const materials = {
   white: mat(COLORS.white, COLORS.cyan, 0.7),
   enemyShot: new THREE.MeshBasicMaterial({ color: COLORS.pink }),
   playerShot: new THREE.MeshBasicMaterial({ color: COLORS.cyan }),
+  enemyShotGlow: projectileGlowMaterial(COLORS.pink),
+  playerShotGlow: projectileGlowMaterial(COLORS.cyan),
 };
 
 scene.add(new THREE.HemisphereLight(0x7030ff, 0x07020f, 1.4));
@@ -317,7 +344,7 @@ function createEnemy(type, row, col) {
 function spawnStage() {
   clearEntities();
   state.formationTime = 0;
-  state.enemyFireTimer = Math.max(0.36, 1.3 - state.stage * 0.065);
+  state.enemyFireTimer = Math.max(0.16, 0.577 - state.stage * 0.0289);
   const rows = Math.min(5, 3 + Math.floor(state.stage / 2));
   const cols = Math.min(10, 6 + state.stage);
   const spacingX = Math.min(2.65, 17 / (cols - 1));
@@ -349,6 +376,12 @@ function shootPlayer() {
   spread.forEach((offset, index) => {
     if (!strong && index > 1) return;
     const shot = new THREE.Mesh(new THREE.BoxGeometry(0.12, strong ? 0.95 : 0.7, 0.14), materials.playerShot);
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.72, strong ? 1.75 : 1.4),
+      materials.playerShotGlow
+    );
+    glow.position.z = -0.08;
+    shot.add(glow);
     shot.position.set(player.position.x + offset, player.position.y + 0.76, 0);
     shot.userData = { vy: strong ? 21 : 18, damage: strong ? 2 : 1, radius: 0.24 };
     world.add(shot);
@@ -366,6 +399,12 @@ function shootEnemy(enemy) {
       type === "bomber" ? new THREE.BoxGeometry(0.22, 0.32, 0.18) : new THREE.IcosahedronGeometry(0.17, 0),
       materials.enemyShot
     );
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(type === "bomber" ? 0.9 : 0.72, type === "bomber" ? 1.05 : 0.72),
+      materials.enemyShotGlow
+    );
+    glow.position.z = -0.08;
+    shot.add(glow);
     shot.position.copy(enemy.position);
     const spread = type === "bomber" ? 2.2 : type === "lancer" ? 1.3 : 3.2;
     const targetX = player.position.x - enemy.position.x + (i - (count - 1) / 2) * spread;
@@ -479,7 +518,7 @@ function spawnPowerup(position) {
 
 function activatePowerup(p) {
   const type = p.userData.type;
-  state.powers[type] += POWER_DEFS[type].duration;
+  state.powers[type] = POWER_DEFS[type].duration;
   syncPowerHud();
   burst(p.position, p.userData.color, 28);
   sfx("power");
@@ -581,7 +620,7 @@ function killEnemy(enemy, shot) {
   updateHud();
   state.shake = 0.13;
   sfx("explode");
-  if (Math.random() < Math.min(0.22, 0.075 + state.stage * 0.008)) spawnPowerup(enemy.position);
+  if (Math.random() < Math.min(0.11, 0.0375 + state.stage * 0.004)) spawnPowerup(enemy.position);
   world.remove(enemy);
   enemies.splice(enemies.indexOf(enemy), 1);
   if (enemies.length === 0) completeStage();
@@ -908,7 +947,7 @@ function updateEnemies(dt) {
     if (state.enemyFireTimer <= 0) {
       const candidates = enemies.filter((e) => e.position.y > -3);
       if (candidates.length) shootEnemy(candidates[Math.floor(Math.random() * candidates.length)]);
-      state.enemyFireTimer = Math.max(0.28, 1.22 - state.stage * 0.06) * (0.72 + Math.random() * 0.7);
+      state.enemyFireTimer = Math.max(0.124, 0.543 - state.stage * 0.0267) * (0.72 + Math.random() * 0.7);
     }
     const diving = enemies.filter((e) => e.userData.diving).length;
     const maxDivers = Math.min(4, 1 + Math.floor(state.stage / 3));
@@ -943,7 +982,6 @@ function updateProjectiles(dt) {
     const shot = enemyShots[i];
     shot.position.x += shot.userData.vx * dt;
     shot.position.y += shot.userData.vy * dt;
-    shot.rotation.x += dt * 7;
     if (intersects(shot, player)) {
       hitPlayer();
       removeAt(enemyShots, i);
