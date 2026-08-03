@@ -193,6 +193,22 @@ h2 { font-size: clamp(52px, 8vw, 100px); }
   transition: color .2s, border-color .2s;
 }
 .secondary-button:hover { color: var(--cyan); border-color: var(--cyan); }
+.gamepad-focus {
+  outline: 2px solid var(--cyan);
+  outline-offset: 5px;
+  color: #fff !important;
+  text-shadow: 0 0 14px var(--cyan);
+  filter: drop-shadow(0 0 8px rgba(35,232,255,.55));
+}
+.primary-button.gamepad-focus {
+  background: linear-gradient(90deg, rgba(35,232,255,.34), rgba(255,45,168,.3));
+  box-shadow: inset 0 0 24px rgba(35,232,255,.14), 0 0 34px rgba(35,232,255,.4);
+  transform: translateY(-2px) scale(1.02);
+}
+.secondary-button.gamepad-focus { border-bottom-color: var(--cyan); background: rgba(35,232,255,.1); }
+.icon-button.gamepad-focus { color: var(--cyan); }
+.pause-continue-button { margin-top: 4px; }
+.pause-quit-button { margin-top: 8px; }
 
 .controls {
   display: flex;
@@ -306,6 +322,7 @@ kbd { margin: 0 2px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); f
   color: var(--cyan);
   background: linear-gradient(90deg, rgba(35,232,255,.08), transparent);
 }
+.leaderboard-list.gamepad-focus { outline: 1px solid rgba(35,232,255,.58); outline-offset: 7px; }
 .leaderboard-rank { color: rgba(255,255,255,.35); font: 700 11px "Orbitron", sans-serif; }
 .leaderboard-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leaderboard-score { font: 700 12px "Orbitron", sans-serif; letter-spacing: .08em; }
@@ -333,6 +350,7 @@ kbd { margin: 0 2px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); f
   background: linear-gradient(90deg, rgba(35,232,255,.16), rgba(255,45,168,.12));
   box-shadow: inset 0 0 18px rgba(35,232,255,.08), 0 0 18px rgba(35,232,255,.12);
 }
+.setting-option.gamepad-focus { box-shadow: inset 0 0 22px rgba(35,232,255,.16), 0 0 24px rgba(35,232,255,.3); }
 .powerups-card { width: min(1060px, 100%); }
 .powerup-guide-list {
   display: grid;
@@ -350,6 +368,11 @@ kbd { margin: 0 2px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); f
   padding: 10px;
   border: 1px solid color-mix(in srgb, var(--power-color) 38%, transparent);
   background: linear-gradient(135deg, color-mix(in srgb, var(--power-color) 10%, transparent), rgba(255,255,255,.02));
+}
+.powerup-guide-entry.gamepad-focus {
+  outline-color: var(--power-color);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--power-color) 30%, transparent), inset 0 0 18px color-mix(in srgb, var(--power-color) 12%, transparent);
+  transform: translateY(-1px) scale(1.01);
 }
 .powerup-guide-icon {
   display: grid;

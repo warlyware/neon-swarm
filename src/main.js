@@ -19,6 +19,8 @@ const ui = {
   messageKicker: document.querySelector("#message-kicker"),
   messageTitle: document.querySelector("#message-title"),
   messageCopy: document.querySelector("#message-copy"),
+  continueRun: document.querySelector("#continue-run-button"),
+  quitRun: document.querySelector("#quit-run-button"),
   gameOver: document.querySelector("#game-over-screen"),
   finalScore: document.querySelector("#final-score"),
   finalStage: document.querySelector("#final-stage"),
@@ -185,9 +187,17 @@ const gamepadInput = {
   moveX: 0,
   moveY: 0,
   firing: false,
+  active: false,
   confirmPressed: false,
   cancelPressed: false,
   pausePressed: false,
+};
+const gamepadNavigation = {
+  focus: null,
+  returnFocus: null,
+  index: 0,
+  repeatDirection: 0,
+  repeatTimer: 0,
 };
 let portalsReady = false;
 let portalsPlayer = null;
@@ -822,6 +832,16 @@ function shootPlayer(auxiliaryOnly = false) {
   if (!auxiliaryOnly) sfx("shoot");
 }
 
+function setGamepadNavigationActive(active) {
+  gamepadInput.active = active;
+  document.documentElement.classList.toggle("gamepad-active", active);
+  if (active) return;
+  clearGamepadFocus();
+  gamepadNavigation.returnFocus = null;
+  gamepadNavigation.repeatDirection = 0;
+  gamepadNavigation.repeatTimer = 0;
+}
+
 function applyGamepadDeadzone(value) {
   const magnitude = Math.abs(value);
   if (magnitude <= GAMEPAD_DEADZONE) return 0;
@@ -839,6 +859,7 @@ function updateGamepadInput() {
     gamepadInput.moveX = 0;
     gamepadInput.moveY = 0;
     gamepadInput.firing = false;
+    setGamepadNavigationActive(false);
     return;
   }
 
@@ -853,6 +874,7 @@ function updateGamepadInput() {
     gamepadInput.moveX = 0;
     gamepadInput.moveY = 0;
     gamepadInput.firing = false;
+    setGamepadNavigationActive(false);
     return;
   }
 
@@ -874,9 +896,98 @@ function updateGamepadInput() {
   gamepadInput.confirmPressed = justPressed(0);
   gamepadInput.cancelPressed = justPressed(1);
   gamepadInput.pausePressed = justPressed(9);
+  if (pressedButtons.some(Boolean) || moveX !== 0 || moveY !== 0) setGamepadNavigationActive(true);
 }
 
-function handleGamepadMenus() {
+function clearGamepadFocus() {
+  gamepadNavigation.focus?.classList.remove("gamepad-focus");
+  gamepadNavigation.focus = null;
+}
+
+function setGamepadFocus(element) {
+  if (gamepadNavigation.focus === element) return;
+  clearGamepadFocus();
+  gamepadNavigation.focus = element;
+  if (!element) return;
+  element.classList.add("gamepad-focus");
+  element.focus({ preventScroll: true });
+  element.scrollIntoView?.({ block: "nearest" });
+}
+
+function getGamepadNavigationItems() {
+  if (!ui.leaderboard.classList.contains("hidden")) {
+    const items = [ui.leaderboardClose, ui.leaderboardList];
+    if (!ui.leaderboardSignIn.classList.contains("hidden")) items.push(ui.leaderboardSignIn);
+    return items;
+  }
+  if (!ui.powerups.classList.contains("hidden")) {
+    return [ui.powerupsClose, ...ui.powerupGuideList.children];
+  }
+  if (!ui.settings.classList.contains("hidden")) {
+    return [ui.settingsClose, ui.mouseModeMove, ui.mouseModeShoot];
+  }
+  if (state.mode === "title" && ui.start.classList.contains("visible")) {
+    return [ui.startButton, ui.leaderboardButton, ui.powerupsButton, ui.settingsToggle];
+  }
+  if (state.mode === "paused") return [ui.continueRun, ui.quitRun];
+  if (state.mode === "gameover" && ui.gameOver.classList.contains("visible")) {
+    return [ui.restart, ui.gameOverLeaderboardButton];
+  }
+  return [];
+}
+
+function getGamepadNavigationDirection(dt) {
+  const verticalDirection = gamepadInput.moveY < -0.55 ? -1 : gamepadInput.moveY > 0.55 ? 1 : 0;
+  const horizontalDirection = gamepadInput.moveX < -0.55 ? -1 : gamepadInput.moveX > 0.55 ? 1 : 0;
+  const direction = !ui.settings.classList.contains("hidden") && horizontalDirection !== 0
+    ? horizontalDirection
+    : verticalDirection;
+  if (direction === 0) {
+    gamepadNavigation.repeatDirection = 0;
+    gamepadNavigation.repeatTimer = 0;
+    return 0;
+  }
+  if (direction !== gamepadNavigation.repeatDirection) {
+    gamepadNavigation.repeatDirection = direction;
+    gamepadNavigation.repeatTimer = 0.32;
+    return direction;
+  }
+  gamepadNavigation.repeatTimer -= dt;
+  if (gamepadNavigation.repeatTimer > 0) return 0;
+  gamepadNavigation.repeatTimer = 0.14;
+  return direction;
+}
+
+function updateGamepadFocus(dt) {
+  const items = getGamepadNavigationItems();
+  if (!items.length) {
+    clearGamepadFocus();
+    return;
+  }
+  let index = items.indexOf(gamepadNavigation.focus);
+  if (index < 0) index = Math.min(gamepadNavigation.index, items.length - 1);
+  const direction = getGamepadNavigationDirection(dt);
+  if (direction) index = (index + direction + items.length) % items.length;
+  gamepadNavigation.index = index;
+  setGamepadFocus(items[index]);
+}
+
+function restoreGamepadFocus() {
+  const returnFocus = gamepadNavigation.returnFocus;
+  gamepadNavigation.returnFocus = null;
+  const items = getGamepadNavigationItems();
+  const index = items.indexOf(returnFocus);
+  if (index < 0) {
+    clearGamepadFocus();
+    return;
+  }
+  gamepadNavigation.index = index;
+  setGamepadFocus(returnFocus);
+}
+
+function handleGamepadMenus(dt) {
+  if (!gamepadInput.active) return;
+  updateGamepadFocus(dt);
   const panelOpen = !ui.leaderboard.classList.contains("hidden")
     || !ui.powerups.classList.contains("hidden")
     || !ui.settings.classList.contains("hidden");
@@ -890,9 +1001,7 @@ function handleGamepadMenus() {
     togglePause();
     return;
   }
-  if (!gamepadInput.confirmPressed || panelOpen) return;
-  if (state.mode === "title" && ui.start.classList.contains("visible")) resetGame();
-  else if (state.mode === "gameover" && ui.gameOver.classList.contains("visible")) resetGame();
+  if (gamepadInput.confirmPressed && gamepadNavigation.focus) gamepadNavigation.focus.click();
 }
 
 function getPlayerMoveDirection() {
@@ -1791,18 +1900,25 @@ async function submitGameScore() {
 }
 
 function openLeaderboard() {
+  if (gamepadInput.active) {
+    gamepadNavigation.returnFocus = gamepadNavigation.focus;
+    gamepadNavigation.index = 0;
+    clearGamepadFocus();
+  }
   ui.leaderboard.classList.remove("hidden");
   if (portalsReady) refreshLeaderboard();
 }
 
 function closeLeaderboard() {
   ui.leaderboard.classList.add("hidden");
+  if (gamepadInput.active) restoreGamepadFocus();
 }
 
 function renderPowerupGuide() {
   ui.powerupGuideList.replaceChildren(...POWERUP_GUIDE.map((power) => {
     const entry = document.createElement("article");
     entry.className = "powerup-guide-entry";
+    entry.tabIndex = -1;
     entry.style.setProperty("--power-color", `#${power.color.toString(16).padStart(6, "0")}`);
 
     const icon = document.createElement("span");
@@ -1824,6 +1940,11 @@ function renderPowerupGuide() {
 }
 
 function openPowerups() {
+  if (gamepadInput.active) {
+    gamepadNavigation.returnFocus = gamepadNavigation.focus;
+    gamepadNavigation.index = 0;
+    clearGamepadFocus();
+  }
   renderPowerupGuide();
   ui.powerups.classList.remove("hidden");
   ui.powerups.setAttribute("aria-hidden", "false");
@@ -1832,6 +1953,7 @@ function openPowerups() {
 function closePowerups() {
   ui.powerups.classList.add("hidden");
   ui.powerups.setAttribute("aria-hidden", "true");
+  if (gamepadInput.active) restoreGamepadFocus();
 }
 
 function updateMouseButtonSetting() {
@@ -1847,6 +1969,11 @@ function setMouseButtonMode(mode) {
 }
 
 function openSettings() {
+  if (gamepadInput.active) {
+    gamepadNavigation.returnFocus = gamepadNavigation.focus;
+    gamepadNavigation.index = 0;
+    clearGamepadFocus();
+  }
   updateMouseButtonSetting();
   ui.settings.classList.remove("hidden");
   ui.settings.setAttribute("aria-hidden", "false");
@@ -1859,6 +1986,7 @@ function closeSettings() {
   ui.settings.setAttribute("aria-hidden", "true");
   if (settingsPausedGame && state.mode === "paused") togglePause();
   settingsPausedGame = false;
+  if (gamepadInput.active) restoreGamepadFocus();
 }
 
 function resetGame() {
@@ -1882,6 +2010,8 @@ function resetGame() {
   syncPowerHud();
   ui.start.classList.remove("visible");
   ui.gameOver.classList.remove("visible");
+  ui.continueRun.hidden = true;
+  ui.quitRun.hidden = true;
   ui.pause.textContent = "PAUSE";
   updateHud();
   initAudio();
@@ -1915,11 +2045,43 @@ function togglePause() {
   if (state.paused) {
     if (player?.userData.beam) player.userData.beam.visible = false;
     stopMusic();
-    showMessage("SIGNAL SUSPENDED", "PAUSED", "PRESS P TO RETURN");
+    ui.continueRun.hidden = false;
+    ui.quitRun.hidden = false;
+    showMessage("SIGNAL SUSPENDED", "PAUSED", "PRESS START OR P TO RESUME");
   } else {
     startMusic();
+    ui.continueRun.hidden = true;
+    ui.quitRun.hidden = true;
     ui.message.classList.remove("visible");
   }
+}
+
+function quitRun() {
+  if (!["playing", "paused"].includes(state.mode)) return;
+  stopMusic();
+  clearEntities();
+  if (player?.userData.beam) world.remove(player.userData.beam);
+  if (player) world.remove(player);
+  player = null;
+  Object.assign(state, {
+    mode: "title",
+    paused: false,
+    score: 0,
+    stage: 1,
+    lives: 3,
+    formationTime: 0,
+    singularityPulseTimer: 0,
+    powers: Object.fromEntries(Object.keys(POWER_DEFS).map((type) => [type, 0])),
+    shake: 0,
+  });
+  ui.continueRun.hidden = true;
+  ui.quitRun.hidden = true;
+  ui.pause.textContent = "PAUSE";
+  ui.message.classList.remove("visible");
+  ui.gameOver.classList.remove("visible");
+  ui.start.classList.add("visible");
+  syncPowerHud();
+  updateHud();
 }
 
 function flash() {
@@ -2598,7 +2760,7 @@ function animate() {
   const elapsed = clock.elapsedTime;
   updateBackdrop(dt, elapsed);
   updateGamepadInput();
-  handleGamepadMenus();
+  handleGamepadMenus(dt);
   if (state.mode === "playing") {
     updatePlayer(dt);
     updatePowerups(dt);
@@ -2623,6 +2785,7 @@ function animate() {
 animate();
 
 addEventListener("keydown", (event) => {
+  setGamepadNavigationActive(false);
   keys.add(event.code);
   if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"].includes(event.code)) event.preventDefault();
   if (event.code === "KeyP" && !event.repeat) togglePause();
@@ -2630,6 +2793,7 @@ addEventListener("keydown", (event) => {
 addEventListener("keyup", (event) => keys.delete(event.code));
 addEventListener("gamepadconnected", (event) => {
   if (gamepadInput.index === null) gamepadInput.index = event.gamepad.index;
+  setGamepadNavigationActive(true);
 });
 addEventListener("gamepaddisconnected", (event) => {
   if (gamepadInput.index !== event.gamepad.index) return;
@@ -2638,7 +2802,9 @@ addEventListener("gamepaddisconnected", (event) => {
   gamepadInput.moveX = 0;
   gamepadInput.moveY = 0;
   gamepadInput.firing = false;
+  setGamepadNavigationActive(false);
 });
+addEventListener("pointerdown", () => setGamepadNavigationActive(false));
 canvas.addEventListener("pointerdown", (event) => {
   if (state.mode !== "playing") return;
   pointerDown = true;
@@ -2669,6 +2835,8 @@ ui.powerups.addEventListener("click", (event) => {
   if (event.target === ui.powerups) closePowerups();
 });
 ui.pause.addEventListener("click", togglePause);
+ui.continueRun.addEventListener("click", togglePause);
+ui.quitRun.addEventListener("click", quitRun);
 ui.settingsToggle.addEventListener("click", openSettings);
 ui.settingsClose.addEventListener("click", closeSettings);
 ui.mouseModeMove.addEventListener("click", () => setMouseButtonMode(MOUSE_BUTTON_MODES.MOVE_AND_SHOOT));
@@ -2700,3 +2868,6 @@ document.addEventListener("visibilitychange", () => {
 
 initializePortals();
 updateMouseButtonSetting();
+
+const fontsReady = document.fonts?.ready ?? Promise.resolve();
+fontsReady.then(() => document.documentElement.classList.add("app-ready"));
