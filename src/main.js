@@ -141,6 +141,7 @@ const MOUSE_BUTTON_MODES = {
   MOVE_AND_SHOOT: "move-and-shoot",
   SHOOT_ONLY: "shoot-only",
 };
+const GAMEPAD_DEADZONE = 0.16;
 
 const state = {
   mode: "title",
@@ -178,6 +179,16 @@ let pointerY = 0;
 let activePointerType = "mouse";
 let settingsPausedGame = false;
 let decoy = null;
+const gamepadInput = {
+  index: null,
+  buttons: [],
+  moveX: 0,
+  moveY: 0,
+  firing: false,
+  confirmPressed: false,
+  cancelPressed: false,
+  pausePressed: false,
+};
 let portalsReady = false;
 let portalsPlayer = null;
 
@@ -811,11 +822,88 @@ function shootPlayer(auxiliaryOnly = false) {
   if (!auxiliaryOnly) sfx("shoot");
 }
 
+function applyGamepadDeadzone(value) {
+  const magnitude = Math.abs(value);
+  if (magnitude <= GAMEPAD_DEADZONE) return 0;
+  return Math.sign(value) * (magnitude - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE);
+}
+
+function updateGamepadInput() {
+  gamepadInput.confirmPressed = false;
+  gamepadInput.cancelPressed = false;
+  gamepadInput.pausePressed = false;
+
+  if (typeof navigator.getGamepads !== "function") {
+    gamepadInput.index = null;
+    gamepadInput.buttons = [];
+    gamepadInput.moveX = 0;
+    gamepadInput.moveY = 0;
+    gamepadInput.firing = false;
+    return;
+  }
+
+  const pads = Array.from(navigator.getGamepads());
+  let pad = gamepadInput.index === null ? null : pads[gamepadInput.index];
+  if (!pad) {
+    pad = pads.find(Boolean) ?? null;
+    gamepadInput.index = pad?.index ?? null;
+  }
+  if (!pad) {
+    gamepadInput.buttons = [];
+    gamepadInput.moveX = 0;
+    gamepadInput.moveY = 0;
+    gamepadInput.firing = false;
+    return;
+  }
+
+  const previousButtons = gamepadInput.buttons;
+  const isPressed = (index) => Boolean(pad.buttons[index]?.pressed || pad.buttons[index]?.value > 0.5);
+  const pressedButtons = pad.buttons.map((button) => Boolean(button?.pressed || button?.value > 0.5));
+  const justPressed = (index) => pressedButtons[index] && !previousButtons[index];
+  const dpadX = (isPressed(15) ? 1 : 0) - (isPressed(14) ? 1 : 0);
+  const dpadY = (isPressed(13) ? 1 : 0) - (isPressed(12) ? 1 : 0);
+  let moveX = applyGamepadDeadzone(pad.axes[0] ?? 0);
+  let moveY = applyGamepadDeadzone(pad.axes[1] ?? 0);
+  if (moveX === 0) moveX = dpadX;
+  if (moveY === 0) moveY = dpadY;
+
+  gamepadInput.buttons = pressedButtons;
+  gamepadInput.moveX = moveX;
+  gamepadInput.moveY = moveY;
+  gamepadInput.firing = isPressed(0) || isPressed(7);
+  gamepadInput.confirmPressed = justPressed(0);
+  gamepadInput.cancelPressed = justPressed(1);
+  gamepadInput.pausePressed = justPressed(9);
+}
+
+function handleGamepadMenus() {
+  const panelOpen = !ui.leaderboard.classList.contains("hidden")
+    || !ui.powerups.classList.contains("hidden")
+    || !ui.settings.classList.contains("hidden");
+  if (gamepadInput.cancelPressed) {
+    if (!ui.settings.classList.contains("hidden")) closeSettings();
+    else if (!ui.powerups.classList.contains("hidden")) closePowerups();
+    else if (!ui.leaderboard.classList.contains("hidden")) closeLeaderboard();
+    return;
+  }
+  if (gamepadInput.pausePressed && !panelOpen && ["playing", "paused"].includes(state.mode)) {
+    togglePause();
+    return;
+  }
+  if (!gamepadInput.confirmPressed || panelOpen) return;
+  if (state.mode === "title" && ui.start.classList.contains("visible")) resetGame();
+  else if (state.mode === "gameover" && ui.gameOver.classList.contains("visible")) resetGame();
+}
+
 function getPlayerMoveDirection() {
   let dx = (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0)
     - (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0);
   let dy = (keys.has("ArrowUp") || keys.has("KeyW") ? 1 : 0)
     - (keys.has("ArrowDown") || keys.has("KeyS") ? 1 : 0);
+  if (gamepadInput.moveX !== 0 || gamepadInput.moveY !== 0) {
+    dx = gamepadInput.moveX;
+    dy = -gamepadInput.moveY;
+  }
   if (dx === 0 && dy === 0 && pointerDown && state.mouseButtonMode === MOUSE_BUTTON_MODES.MOVE_AND_SHOOT) {
     const targetX = pointerX * 13.3;
     const targetY = THREE.MathUtils.clamp(pointerY * 11 - 2.5, -10, 4);
@@ -2161,6 +2249,10 @@ function updatePlayer(dt) {
     targetVelocityX = THREE.MathUtils.clamp((targetX - player.position.x) * 8, -16, 16);
     targetVelocityY = THREE.MathUtils.clamp((targetY - player.position.y) * 8, -13, 13);
   }
+  if (gamepadInput.moveX !== 0 || gamepadInput.moveY !== 0) {
+    targetVelocityX = gamepadInput.moveX * 12;
+    targetVelocityY = -gamepadInput.moveY * 10;
+  }
   player.userData.velocityX = THREE.MathUtils.lerp(player.userData.velocityX, targetVelocityX, 1 - Math.exp(-dt * 11));
   player.userData.velocityY = THREE.MathUtils.lerp(player.userData.velocityY, targetVelocityY, 1 - Math.exp(-dt * 11));
   player.position.x = THREE.MathUtils.clamp(player.position.x + player.userData.velocityX * dt, -13.2, 13.2);
@@ -2193,7 +2285,7 @@ function updatePlayer(dt) {
   player.userData.invulnerable -= dt;
   if (player.userData.invulnerable > 0) player.visible = Math.floor(player.userData.invulnerable * 12) % 2 === 0;
   else player.visible = true;
-  const firing = keys.has("Space") || pointerDown;
+  const firing = keys.has("Space") || pointerDown || gamepadInput.firing;
   updatePlasmaBeam(dt, firing);
   if (firing) shootPlayer(state.powers.plasma > 0);
 }
@@ -2505,6 +2597,8 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.033);
   const elapsed = clock.elapsedTime;
   updateBackdrop(dt, elapsed);
+  updateGamepadInput();
+  handleGamepadMenus();
   if (state.mode === "playing") {
     updatePlayer(dt);
     updatePowerups(dt);
@@ -2534,6 +2628,17 @@ addEventListener("keydown", (event) => {
   if (event.code === "KeyP" && !event.repeat) togglePause();
 });
 addEventListener("keyup", (event) => keys.delete(event.code));
+addEventListener("gamepadconnected", (event) => {
+  if (gamepadInput.index === null) gamepadInput.index = event.gamepad.index;
+});
+addEventListener("gamepaddisconnected", (event) => {
+  if (gamepadInput.index !== event.gamepad.index) return;
+  gamepadInput.index = null;
+  gamepadInput.buttons = [];
+  gamepadInput.moveX = 0;
+  gamepadInput.moveY = 0;
+  gamepadInput.firing = false;
+});
 canvas.addEventListener("pointerdown", (event) => {
   if (state.mode !== "playing") return;
   pointerDown = true;

@@ -196,6 +196,8 @@ h2 { font-size: clamp(52px, 8vw, 100px); }
 
 .controls {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 28px;
   margin-top: 34px;
   color: rgba(255,255,255,.42);
