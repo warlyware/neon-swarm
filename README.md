@@ -11,7 +11,7 @@ npm run dev
 
 Controls: arrow keys or WASD to fly in any direction, Space to fire, and P to pause. On touch devices, drag to move and hold to fire.
 
-Power-ups include triple-shot overdrive, chrono slowdown, a phase shield, piercing plasma beams, homing missiles, mirror drones, a pickup magnet, a score multiplier, angled cannons, an instant Nova Bomb, and a rare extra-ship pickup. Timed effects stack independently. Player lives are capped at six; extra-ship pickups stop dropping at that cap, and pickup magnets stop dropping from stage 10 onward.
+Power-ups include triple-shot overdrive, chrono slowdown, a phase shield, piercing plasma beams, homing missiles, mirror drones, a pickup magnet, a score multiplier, angled cannons, chain lightning, EMP lockdown, hologram decoys, a Reflector Array, a Scavenger Swarm, Warp Dash, Singularity Core, Phoenix Protocol, an instant Nova Bomb, and a rare extra-ship pickup. Timed effects stack independently. Player lives are capped at six; extra-ship pickups stop dropping at that cap, and pickup magnets stop dropping from stage 10 onward.
 
 Enemy waves mix scouts, guards, aces, heavy bombers, flickering phantoms, and fast-diving lancers as the stages progress.
 

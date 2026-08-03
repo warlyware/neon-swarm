@@ -30,8 +30,18 @@ const ui = {
   leaderboardStatus: document.querySelector("#leaderboard-status"),
   leaderboardList: document.querySelector("#leaderboard-list"),
   leaderboardSignIn: document.querySelector("#leaderboard-sign-in"),
+  powerupsButton: document.querySelector("#powerups-button"),
+  powerups: document.querySelector("#powerups-panel"),
+  powerupsClose: document.querySelector("#powerups-close"),
+  powerupGuideList: document.querySelector("#powerup-guide-list"),
   sound: document.querySelector("#sound-toggle"),
   pause: document.querySelector("#pause-toggle"),
+  settingsToggle: document.querySelector("#settings-toggle"),
+  settings: document.querySelector("#settings-panel"),
+  settingsClose: document.querySelector("#settings-close"),
+  mouseModeMove: document.querySelector("#mouse-mode-move"),
+  mouseModeShoot: document.querySelector("#mouse-mode-shoot"),
+  mouseControlHint: document.querySelector("#mouse-control-hint"),
   flash: document.querySelector("#flash"),
 };
 
@@ -71,6 +81,12 @@ const POWER_DEFS = {
   magnet: { type: "magnet", color: 0x62ff9f, icon: "∩", name: "MAGNETIC FIELD", duration: 10 },
   multiplier: { type: "multiplier", color: 0xff79d1, icon: "×2", name: "SCORE MULTIPLIER", duration: 12 },
   spread: { type: "spread", color: 0x8fb7ff, icon: "⋰", name: "ANGLE CANNONS", duration: 10 },
+  chain: { type: "chain", color: COLORS.orange, icon: "ϟ", name: "CHAIN LIGHTNING", duration: 10 },
+  emp: { type: "emp", color: 0x68f7ff, icon: "◎", name: "EMP LOCKDOWN", duration: 4.5 },
+  decoy: { type: "decoy", color: 0xff5bc8, icon: "◈", name: "HOLOGRAM DECOY", duration: 10 },
+  reflector: { type: "reflector", color: 0x7df9ff, icon: "↺", name: "REFLECTOR ARRAY", duration: 10 },
+  scavenger: { type: "scavenger", color: 0x7dff8a, icon: "✣", name: "SCAVENGER SWARM", duration: 10 },
+  singularity: { type: "singularity", color: 0xe36bff, icon: "●", name: "SINGULARITY CORE", duration: 8 },
 };
 const EXTRA_SHIP_POWER = {
   type: "extra-ship",
@@ -84,18 +100,60 @@ const NOVA_POWER = {
   icon: "✦",
   name: "NOVA BOMB",
 };
+const WARP_DASH_POWER = {
+  type: "warp",
+  color: 0x7df9ff,
+  icon: "➤",
+  name: "WARP DASH",
+};
+const POWERUP_DESCRIPTIONS = {
+  overdrive: "Triple-shot firepower with heavier, faster blasts.",
+  chrono: "Slows enemy movement and incoming projectiles.",
+  shield: "Absorbs one hit before burning out.",
+  plasma: "Replaces normal shots with a continuous piercing beam.",
+  homing: "Adds missiles that steer toward nearby enemies.",
+  drones: "Deploys mirror drones that add side fire.",
+  magnet: "Pulls nearby powerups toward your ship.",
+  multiplier: "Doubles score from enemy kills and stage bonuses.",
+  spread: "Adds angled cannons to your main fire.",
+  chain: "Hits arc to up to two nearby enemies.",
+  emp: "Clears enemy fire and locks enemies in place.",
+  decoy: "Deploys a hologram that draws and absorbs enemy fire.",
+  reflector: "Periodically redirects nearby enemy bullets back toward their attackers.",
+  scavenger: "Destroyed enemies release small autonomous attack drones.",
+  singularity: "Pulls nearby enemies inward and pulses damage.",
+  "extra-ship": "Adds one ship, up to the six-ship cap.",
+  nova: "Destroys enemy fire and damages every enemy.",
+  warp: "Teleports you in your movement direction and grants brief invulnerability.",
+};
+const POWERUP_GUIDE = [
+  ...Object.values(POWER_DEFS),
+  EXTRA_SHIP_POWER,
+  NOVA_POWER,
+  WARP_DASH_POWER,
+].map((power) => ({
+  ...power,
+  description: POWERUP_DESCRIPTIONS[power.type],
+}));
 const MAX_PLAYER_LIVES = 6;
+const EXTRA_SHIP_GRACE_SECONDS = 0.35;
+const MOUSE_BUTTON_MODES = {
+  MOVE_AND_SHOOT: "move-and-shoot",
+  SHOOT_ONLY: "shoot-only",
+};
 
 const state = {
   mode: "title",
   paused: false,
   sound: true,
+  mouseButtonMode: MOUSE_BUTTON_MODES.MOVE_AND_SHOOT,
   score: 0,
   stage: 1,
   lives: 3,
   stageTimer: 0,
   formationTime: 0,
   enemyFireTimer: 1,
+  singularityPulseTimer: 0,
   powers: Object.fromEntries(Object.keys(POWER_DEFS).map((type) => [type, 0])),
   shake: 0,
 };
@@ -106,6 +164,7 @@ const playerShots = [];
 const enemyShots = [];
 const powerups = [];
 const particles = [];
+const scavengerDrones = [];
 let player;
 let audio;
 let musicBus;
@@ -116,6 +175,9 @@ let nextMusicTime = 0;
 let pointerDown = false;
 let pointerX = 0;
 let pointerY = 0;
+let activePointerType = "mouse";
+let settingsPausedGame = false;
+let decoy = null;
 let portalsReady = false;
 let portalsPlayer = null;
 
@@ -306,8 +368,11 @@ function createPlayer() {
     radius: 0.55,
     fireTimer: 0,
     invulnerable: 0,
+    destroyed: false,
     velocityX: 0,
     velocityY: 0,
+    reflectorTimer: 0,
+    reflectorField: null,
     thrusters,
     engineLight,
     drones,
@@ -317,6 +382,186 @@ function createPlayer() {
   };
   world.add(ship);
   return ship;
+}
+
+function createReflectorField() {
+  const field = new THREE.Group();
+  const fieldMaterial = new THREE.MeshBasicMaterial({
+    color: POWER_DEFS.reflector.color,
+    transparent: true,
+    opacity: 0.72,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const outerRing = new THREE.Mesh(new THREE.TorusGeometry(2.05, 0.075, 8, 36), fieldMaterial);
+  outerRing.rotation.x = Math.PI / 2;
+  field.add(outerRing);
+
+  const innerRing = new THREE.Mesh(
+    new THREE.TorusGeometry(1.62, 0.035, 6, 28),
+    fieldMaterial.clone()
+  );
+  innerRing.rotation.y = Math.PI / 2;
+  field.add(innerRing);
+  field.userData = { outerRing, innerRing, phase: 0 };
+  field.visible = false;
+  player.add(field);
+  return field;
+}
+
+function createHologramDecoy() {
+  const group = new THREE.Group();
+  const auraMaterial = projectileGlowMaterial(POWER_DEFS.decoy.color);
+  const aura = new THREE.Mesh(new THREE.PlaneGeometry(5.1, 5.1), auraMaterial);
+  aura.position.z = -0.34;
+  group.add(aura);
+
+  const bodyMaterial = enemyWireMaterial(POWER_DEFS.decoy.color);
+  const body = new THREE.Mesh(new THREE.ConeGeometry(0.9, 3.25, 4), bodyMaterial);
+  body.rotation.y = Math.PI / 4;
+  body.position.set(0, 0.15, 0.2);
+  group.add(body);
+
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color: POWER_DEFS.decoy.color,
+    transparent: true,
+    opacity: 0.72,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.16, 0.045, 6, 24), ringMaterial);
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+
+  group.scale.setScalar(0.45);
+  group.userData = {
+    radius: 0.55,
+    aura,
+    bodyMaterial,
+    ring,
+    phase: 0,
+  };
+  group.visible = false;
+  world.add(group);
+  return group;
+}
+
+function updateDecoy(dt) {
+  if (!decoy) {
+    if (state.powers.decoy > 0) decoy = createHologramDecoy();
+    else return;
+  }
+  if (state.powers.decoy <= 0 || state.mode !== "playing") {
+    decoy.visible = false;
+    return;
+  }
+  const data = decoy.userData;
+  data.phase += dt;
+  const targetX = THREE.MathUtils.clamp(player.position.x + Math.sin(data.phase * 2.2) * 2.45, -12.5, 12.5);
+  const targetY = THREE.MathUtils.clamp(player.position.y + 0.45 + Math.cos(data.phase * 1.7) * 0.35, -9.5, 3.6);
+  decoy.position.x = THREE.MathUtils.lerp(decoy.position.x, targetX, 1 - Math.exp(-dt * 8));
+  decoy.position.y = THREE.MathUtils.lerp(decoy.position.y, targetY, 1 - Math.exp(-dt * 8));
+  decoy.rotation.z = Math.sin(data.phase * 2.7) * 0.1;
+  data.ring.rotation.z += dt * 3.2;
+  data.bodyMaterial.opacity = 0.55 + Math.sin(data.phase * 8) * 0.2;
+  data.aura.material.uniforms.glowOpacity.value = 0.45 + Math.sin(data.phase * 6) * 0.18;
+  decoy.visible = true;
+}
+
+function updateReflectorField(dt) {
+  if (!player.userData.reflectorField && state.powers.reflector > 0) {
+    player.userData.reflectorField = createReflectorField();
+  }
+  const field = player.userData.reflectorField;
+  if (!field) return;
+  const active = state.powers.reflector > 0;
+  field.visible = active;
+  if (!active) {
+    player.userData.reflectorTimer = 0;
+    return;
+  }
+  const data = field.userData;
+  data.phase += dt;
+  data.outerRing.rotation.z += dt * 2.4;
+  data.innerRing.rotation.z -= dt * 3.1;
+  const pulse = 0.94 + Math.sin(data.phase * 7) * 0.08;
+  field.scale.setScalar(pulse);
+  data.outerRing.material.opacity = 0.58 + Math.sin(data.phase * 8) * 0.14;
+}
+
+function createScavengerDrone(position) {
+  if (scavengerDrones.length >= 12) return;
+  const drone = new THREE.Group();
+  const color = POWER_DEFS.scavenger.color;
+  const aura = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4), projectileGlowMaterial(color));
+  aura.position.z = -0.18;
+  drone.add(aura);
+  const core = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.2, 0),
+    new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending })
+  );
+  drone.add(core);
+  const wing = new THREE.Mesh(
+    new THREE.BoxGeometry(0.72, 0.08, 0.08),
+    new THREE.MeshBasicMaterial({ color: COLORS.white, blending: THREE.AdditiveBlending })
+  );
+  drone.add(wing);
+  drone.position.copy(position);
+  drone.userData = {
+    radius: 0.28,
+    life: 5.5,
+    phase: Math.random() * Math.PI * 2,
+    vx: 0,
+    vy: 0,
+    aura,
+    core,
+  };
+  world.add(drone);
+  scavengerDrones.push(drone);
+}
+
+function updateScavengerDrones(dt) {
+  for (let i = scavengerDrones.length - 1; i >= 0; i--) {
+    const drone = scavengerDrones[i];
+    const data = drone.userData;
+    data.life -= dt;
+    data.phase += dt;
+    const target = enemies
+      .filter((enemy) => !enemy.userData.respawning)
+      .sort((a, b) => (
+        drone.position.distanceToSquared(a.position) - drone.position.distanceToSquared(b.position)
+      ))[0];
+
+    if (target) {
+      const dx = target.position.x - drone.position.x;
+      const dy = target.position.y - drone.position.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      const speed = 8.5 + Math.sin(data.phase * 3) * 0.8;
+      data.vx = THREE.MathUtils.lerp(data.vx, dx / distance * speed, 1 - Math.exp(-dt * 8));
+      data.vy = THREE.MathUtils.lerp(data.vy, dy / distance * speed, 1 - Math.exp(-dt * 8));
+      drone.position.x += data.vx * dt;
+      drone.position.y += data.vy * dt;
+      drone.rotation.z = -Math.atan2(data.vx, data.vy);
+      if (distance < target.userData.radius + 0.34) {
+        burst(drone.position, POWER_DEFS.scavenger.color, 10);
+        killEnemy(target, {
+          position: drone.position,
+          userData: { damage: 1 },
+        }, {
+          suppressScavenger: true,
+        });
+        removeAt(scavengerDrones, i);
+        continue;
+      }
+    } else {
+      drone.position.y += dt * 1.6;
+    }
+
+    data.core.rotation.x += dt * 7;
+    data.core.rotation.y -= dt * 5;
+    data.aura.material.uniforms.glowOpacity.value = 0.45 + Math.sin(data.phase * 8) * 0.16;
+    if (data.life <= 0 || drone.position.y > 14) removeAt(scavengerDrones, i);
+  }
 }
 
 function createEnemy(type, row, col) {
@@ -432,13 +677,18 @@ function spawnStage() {
 }
 
 function clearEntities() {
-  const removable = [...enemies, ...playerShots, ...enemyShots, ...particles, ...powerups];
+  const removable = [...enemies, ...playerShots, ...enemyShots, ...particles, ...powerups, ...scavengerDrones];
   removable.forEach((object) => world.remove(object));
+  if (decoy) {
+    world.remove(decoy);
+    decoy = null;
+  }
   enemies.length = 0;
   playerShots.length = 0;
   enemyShots.length = 0;
   particles.length = 0;
   powerups.length = 0;
+  scavengerDrones.length = 0;
 }
 
 function beginPowerupTransitionFade() {
@@ -505,6 +755,7 @@ function spawnPlayerProjectile(offsetX, {
   damage = 1,
   homing = false,
   originY = 0.76,
+  chain = state.powers.chain > 0,
 } = {}) {
   const strong = state.powers.overdrive > 0;
   const shot = new THREE.Mesh(
@@ -525,6 +776,7 @@ function spawnPlayerProjectile(offsetX, {
     vy,
     damage,
     homing,
+    chain,
     radius: homing ? 0.3 : 0.24,
   };
   world.add(shot);
@@ -557,6 +809,89 @@ function shootPlayer(auxiliaryOnly = false) {
   }
   player.userData.fireTimer = strong ? 0.12 : 0.22;
   if (!auxiliaryOnly) sfx("shoot");
+}
+
+function getPlayerMoveDirection() {
+  let dx = (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0)
+    - (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0);
+  let dy = (keys.has("ArrowUp") || keys.has("KeyW") ? 1 : 0)
+    - (keys.has("ArrowDown") || keys.has("KeyS") ? 1 : 0);
+  if (dx === 0 && dy === 0 && pointerDown && state.mouseButtonMode === MOUSE_BUTTON_MODES.MOVE_AND_SHOOT) {
+    const targetX = pointerX * 13.3;
+    const targetY = THREE.MathUtils.clamp(pointerY * 11 - 2.5, -10, 4);
+    dx = targetX - player.position.x;
+    dy = targetY - player.position.y;
+  }
+  if (dx === 0 && dy === 0) {
+    dx = player.userData.velocityX;
+    dy = player.userData.velocityY;
+  }
+  if (dx === 0 && dy === 0) dy = 1;
+  const length = Math.hypot(dx, dy) || 1;
+  return { x: dx / length, y: dy / length };
+}
+
+function triggerWarpDash() {
+  const direction = getPlayerMoveDirection();
+  const previousPosition = player.position.clone();
+  const distance = 3.8;
+  player.position.x = THREE.MathUtils.clamp(player.position.x + direction.x * distance, -13.2, 13.2);
+  player.position.y = THREE.MathUtils.clamp(player.position.y + direction.y * distance, -10.2, 4);
+  player.userData.velocityX = direction.x * 14;
+  player.userData.velocityY = direction.y * 14;
+  player.userData.invulnerable = Math.max(player.userData.invulnerable, 0.62);
+  state.shake = 0.2;
+  burst(previousPosition, WARP_DASH_POWER.color, 16);
+  burst(player.position, WARP_DASH_POWER.color, 20);
+  sfx("power");
+}
+
+function createTemporaryBeam(start, end, color, width = 0.1, life = 0.16) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (!length) return;
+  const beam = new THREE.Mesh(
+    new THREE.PlaneGeometry(length, width),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  beam.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, 0.35);
+  beam.rotation.z = Math.atan2(dy, dx);
+  beam.userData = {
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    life,
+    maxLife: life,
+    effect: true,
+  };
+  world.add(beam);
+  particles.push(beam);
+}
+
+function triggerChainLightning(originEnemy) {
+  const targets = enemies
+    .filter((enemy) => enemy !== originEnemy && !enemy.userData.respawning)
+    .sort((a, b) => (
+      originEnemy.position.distanceToSquared(a.position) - originEnemy.position.distanceToSquared(b.position)
+    ))
+    .filter((enemy) => originEnemy.position.distanceToSquared(enemy.position) < 42)
+    .slice(0, 2);
+  for (const target of targets) {
+    if (!enemies.includes(target)) continue;
+    createTemporaryBeam(originEnemy.position, target.position, POWER_DEFS.chain.color, 0.13, 0.2);
+    burst(target.position, POWER_DEFS.chain.color, 6);
+    killEnemy(target, {
+      position: target.position,
+      userData: { damage: 1 },
+    });
+  }
 }
 
 function createPlasmaBeam() {
@@ -620,6 +955,7 @@ function updatePlasmaBeam(dt, firing) {
 function shootEnemy(enemy) {
   const type = enemy.userData.type;
   const count = type === "bomber" ? 5 : type === "lancer" ? 2 : state.stage >= 5 && type === "ace" ? 3 : 1;
+  const target = state.powers.decoy > 0 && decoy?.visible ? decoy : player;
   for (let i = 0; i < count; i++) {
     const shot = new THREE.Mesh(
       type === "bomber" ? new THREE.BoxGeometry(0.22, 0.32, 0.18) : new THREE.IcosahedronGeometry(0.17, 0),
@@ -633,19 +969,70 @@ function shootEnemy(enemy) {
     shot.add(glow);
     shot.position.copy(enemy.position);
     const spread = type === "bomber" ? 2.2 : type === "lancer" ? 1.3 : 3.2;
-    const targetX = player.position.x - enemy.position.x + (i - (count - 1) / 2) * spread;
-    const targetY = player.position.y - enemy.position.y;
+    const targetX = target.position.x - enemy.position.x + (i - (count - 1) / 2) * spread;
+    const targetY = target.position.y - enemy.position.y;
     const len = Math.hypot(targetX, targetY);
     const speed = (type === "lancer" ? 9.2 : type === "bomber" ? 4.4 : 5.6) + state.stage * 0.42;
-    shot.userData = { vx: targetX / len * speed, vy: targetY / len * speed, radius: type === "bomber" ? 0.28 : 0.23 };
+    shot.userData = {
+      vx: targetX / len * speed,
+      vy: targetY / len * speed,
+      radius: type === "bomber" ? 0.28 : 0.23,
+      target: target === decoy ? "decoy" : "player",
+      source: enemy,
+      reflected: false,
+    };
     world.add(shot);
     enemyShots.push(shot);
   }
   sfx("enemy");
 }
 
+function reflectEnemyShots() {
+  const reflectionRadius = 6.8;
+  let reflectedCount = 0;
+  for (const shot of enemyShots) {
+    if (shot.userData.reflected) continue;
+    const distance = Math.hypot(shot.position.x - player.position.x, shot.position.y - player.position.y);
+    if (distance > reflectionRadius) continue;
+
+    let target = shot.userData.source;
+    if (!target || !enemies.includes(target)) {
+      target = enemies.reduce((nearest, enemy) => {
+        if (!nearest) return enemy;
+        return shot.position.distanceToSquared(enemy.position) < shot.position.distanceToSquared(nearest.position)
+          ? enemy
+          : nearest;
+      }, null);
+    }
+    if (!target) continue;
+
+    const dx = target.position.x - shot.position.x;
+    const dy = target.position.y - shot.position.y;
+    const distanceToTarget = Math.hypot(dx, dy) || 1;
+    const speed = Math.max(9, Math.hypot(shot.userData.vx, shot.userData.vy) * 1.15);
+    shot.userData.vx = dx / distanceToTarget * speed;
+    shot.userData.vy = dy / distanceToTarget * speed;
+    shot.userData.reflected = true;
+    shot.userData.target = "enemy";
+    shot.userData.damage = 2;
+    shot.rotation.z = -Math.atan2(shot.userData.vx, shot.userData.vy);
+
+    shot.material = shot.material.clone();
+    shot.material.color.set(POWER_DEFS.reflector.color);
+    const glow = shot.children[0];
+    if (glow?.material?.clone) {
+      glow.material = glow.material.clone();
+      glow.material.uniforms.glowColor.value.set(POWER_DEFS.reflector.color);
+      glow.material.uniforms.glowOpacity.value = 1.25;
+    }
+    burst(shot.position, POWER_DEFS.reflector.color, 5);
+    reflectedCount++;
+  }
+  if (reflectedCount) sfx("shoot");
+}
+
 function spawnPowerup(position) {
-  const kinds = Object.values(POWER_DEFS).filter((power) => (
+  const kinds = [...Object.values(POWER_DEFS), WARP_DASH_POWER].filter((power) => (
     power.type !== "magnet" || state.stage < 10
   ));
   const rareRoll = Math.random();
@@ -725,6 +1112,12 @@ function spawnPowerup(position) {
     spread: () => new THREE.TetrahedronGeometry(0.38, 0),
     "extra-ship": () => new THREE.ConeGeometry(0.3, 0.72, 4),
     nova: () => new THREE.DodecahedronGeometry(0.34, 0),
+    warp: () => new THREE.ConeGeometry(0.3, 0.72, 4),
+    chain: () => new THREE.TorusKnotGeometry(0.22, 0.07, 28, 5),
+    emp: () => new THREE.TorusGeometry(0.34, 0.08, 8, 18),
+    decoy: () => new THREE.OctahedronGeometry(0.36, 0),
+    reflector: () => new THREE.TorusKnotGeometry(0.22, 0.07, 28, 5),
+    singularity: () => new THREE.SphereGeometry(0.3, 12, 8),
   };
   const coreGeometry = coreGeometries[kind.type]();
   const core = new THREE.Mesh(coreGeometry, mat(0xffffff, kind.color, 2.8));
@@ -795,6 +1188,10 @@ function activatePowerup(p) {
   const type = p.userData.type;
   if (type === "extra-ship") {
     state.lives = Math.min(MAX_PLAYER_LIVES, state.lives + 1);
+    player.userData.invulnerable = Math.max(
+      player.userData.invulnerable,
+      EXTRA_SHIP_GRACE_SECONDS
+    );
     updateHud();
     burst(p.position, p.userData.color, 36);
     sfx("power");
@@ -817,7 +1214,28 @@ function activatePowerup(p) {
     sfx("power");
     return;
   }
+  if (type === "warp") {
+    triggerWarpDash();
+    return;
+  }
+  if (type === "emp") {
+    for (let i = enemyShots.length - 1; i >= 0; i--) {
+      burst(enemyShots[i].position, POWER_DEFS.emp.color, 4);
+      removeAt(enemyShots, i);
+    }
+    state.shake = 0.28;
+    flash();
+  }
   state.powers[type] = POWER_DEFS[type].duration;
+  if (type === "decoy") {
+    if (!decoy) decoy = createHologramDecoy();
+    decoy.position.copy(player.position);
+    decoy.position.x = THREE.MathUtils.clamp(player.position.x + 2.4, -12.5, 12.5);
+    decoy.position.y += 0.45;
+    decoy.visible = true;
+  }
+  if (type === "reflector") player.userData.reflectorTimer = 0;
+  if (type === "singularity") state.singularityPulseTimer = 0;
   syncPowerHud();
   burst(p.position, p.userData.color, 28);
   sfx("power");
@@ -838,12 +1256,15 @@ function syncPowerHud() {
     const details = document.createElement("div");
     const name = document.createElement("span");
     name.textContent = power.name;
-    const meter = document.createElement("div");
-    meter.className = "meter";
-    const fill = document.createElement("i");
-    fill.dataset.powerMeter = power.type;
-    meter.append(fill);
-    details.append(name, meter);
+    details.append(name);
+    if (power.duration) {
+      const meter = document.createElement("div");
+      meter.className = "meter";
+      const fill = document.createElement("i");
+      fill.dataset.powerMeter = power.type;
+      meter.append(fill);
+      details.append(meter);
+    }
     chip.append(icon, details);
     return chip;
   }));
@@ -868,6 +1289,182 @@ function burst(position, color, count = 14) {
     world.add(particle);
     particles.push(particle);
   }
+}
+
+function createShockwave(position, color, {
+  life = 0.7,
+  startScale = 0.7,
+  maxScale = 5.8,
+  opacity = 0.95,
+  rotation = 0,
+  rotationSpeed = 2.2,
+  z = 0.35,
+} = {}) {
+  const shockwave = new THREE.Mesh(
+    new THREE.RingGeometry(0.14, 0.24, 32),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  shockwave.position.copy(position);
+  shockwave.position.z = z;
+  shockwave.rotation.z = rotation;
+  shockwave.userData = {
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    life,
+    maxLife: life,
+    effect: "shockwave",
+    startScale,
+    maxScale,
+    opacity,
+    rotationSpeed,
+  };
+  world.add(shockwave);
+  particles.push(shockwave);
+}
+
+function createExplosionFlash(position, color, life, maxScale, opacity = 1) {
+  const flashCore = new THREE.Mesh(
+    new THREE.CircleGeometry(0.55, 32),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    })
+  );
+  flashCore.position.copy(position);
+  flashCore.position.z = 0.7;
+  flashCore.scale.setScalar(0.15);
+  flashCore.userData = {
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    life,
+    maxLife: life,
+    effect: "explosion-flash",
+    maxScale,
+    opacity,
+  };
+  world.add(flashCore);
+  particles.push(flashCore);
+}
+
+function createExplosionRays(position) {
+  const colors = [COLORS.white, COLORS.cyan, COLORS.pink];
+  for (let i = 0; i < 20; i++) {
+    const angle = Math.PI * 2 * i / 20 + (Math.random() - 0.5) * 0.16;
+    const length = 0.7 + Math.random() * 1.35;
+    const speed = 4.5 + Math.random() * 6.5;
+    const life = 0.32 + Math.random() * 0.34;
+    const ray = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.045 + Math.random() * 0.075, length),
+      new THREE.MeshBasicMaterial({
+        color: colors[i % colors.length],
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    const distance = 0.25 + Math.random() * 0.32;
+    ray.position.copy(position);
+    ray.position.x += Math.cos(angle) * distance;
+    ray.position.y += Math.sin(angle) * distance;
+    ray.position.z = 0.48 + Math.random() * 0.12;
+    ray.rotation.z = angle - Math.PI / 2;
+    ray.userData = {
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      vz: 0,
+      life,
+      maxLife: life,
+      effect: "explosion-ray",
+      opacity: 0.9,
+    };
+    world.add(ray);
+    particles.push(ray);
+  }
+}
+
+function createExplosionDebris(position) {
+  const colors = [COLORS.cyan, COLORS.pink, COLORS.white];
+  for (let i = 0; i < 30; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 3.5 + Math.random() * 8.5;
+    const life = 0.65 + Math.random() * 0.75;
+    const shard = new THREE.Mesh(
+      new THREE.TetrahedronGeometry(0.075 + Math.random() * 0.14, 0),
+      new THREE.MeshBasicMaterial({
+        color: colors[i % colors.length],
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    shard.position.copy(position);
+    shard.position.z = 0.2 + (Math.random() - 0.5) * 0.5;
+    shard.scale.set(0.55, 1.2 + Math.random() * 2.4, 0.7);
+    shard.rotation.z = angle - Math.PI / 2;
+    shard.userData = {
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      vz: (Math.random() - 0.5) * 3,
+      life,
+      maxLife: life,
+      effect: "explosion-debris",
+      spinX: (Math.random() - 0.5) * 18,
+      spinY: (Math.random() - 0.5) * 18,
+      spinZ: (Math.random() - 0.5) * 24,
+      opacity: 1,
+    };
+    world.add(shard);
+    particles.push(shard);
+  }
+}
+
+function createPlayerExplosion(position) {
+  burst(position, COLORS.cyan, 52);
+  burst(position, COLORS.pink, 36);
+  burst(position, COLORS.white, 18);
+  createExplosionFlash(position, COLORS.white, 0.28, 5.4, 1);
+  createExplosionFlash(position, COLORS.cyan, 0.52, 7.2, 0.72);
+  createShockwave(position, COLORS.white, {
+    life: 0.42,
+    startScale: 0.35,
+    maxScale: 6.5,
+    opacity: 1,
+    rotationSpeed: -4.5,
+    z: 0.65,
+  });
+  createShockwave(position, COLORS.pink, {
+    life: 0.84,
+    startScale: 0.5,
+    maxScale: 11.5,
+    opacity: 0.92,
+    rotation: Math.PI / 16,
+    rotationSpeed: 2.8,
+    z: 0.5,
+  });
+  createShockwave(position, COLORS.cyan, {
+    life: 1.08,
+    startScale: 0.7,
+    maxScale: 15,
+    opacity: 0.72,
+    rotation: -Math.PI / 12,
+    rotationSpeed: -1.65,
+    z: 0.38,
+  });
+  createExplosionRays(position);
+  createExplosionDebris(position);
+  state.shake = 0.95;
 }
 
 function emitPowerupSparkles(powerup) {
@@ -915,6 +1512,10 @@ function hitPlayer() {
   player.visible = false;
   state.shake = 0.55;
   burst(player.position, COLORS.cyan, 35);
+  if (state.lives <= 0) {
+    player.userData.destroyed = true;
+    createPlayerExplosion(player.position);
+  }
   flash();
   sfx("explode");
   setTimeout(() => {
@@ -928,12 +1529,17 @@ function hitPlayer() {
   if (state.lives <= 0) setTimeout(endGame, 900);
 }
 
-function killEnemy(enemy, shot) {
+function killEnemy(enemy, shot, {
+  skipStageClear = false,
+  suppressDrop = false,
+  suppressScavenger = false,
+  quiet = false,
+} = {}) {
   enemy.userData.hp -= shot.userData.damage;
   burst(shot.position, enemy.userData.hp <= 0 ? COLORS.pink : COLORS.cyan, enemy.userData.hp <= 0 ? 16 : 5);
   if (enemy.userData.hp > 0) {
     enemy.scale.multiplyScalar(0.94);
-    sfx("hit");
+    if (!quiet) sfx("hit");
     return;
   }
   const points = {
@@ -948,11 +1554,12 @@ function killEnemy(enemy, shot) {
   state.score += points * state.stage * scoreMultiplier;
   updateHud();
   state.shake = 0.13;
-  sfx("explode");
-  if (Math.random() < Math.min(0.132, 0.045 + state.stage * 0.0048)) spawnPowerup(enemy.position);
+  if (!quiet) sfx("explode");
+  if (state.powers.scavenger > 0 && !suppressScavenger) createScavengerDrone(enemy.position);
+  if (!suppressDrop && Math.random() < Math.min(0.1386, (0.045 + state.stage * 0.0048) * 1.05)) spawnPowerup(enemy.position);
   world.remove(enemy);
   enemies.splice(enemies.indexOf(enemy), 1);
-  if (enemies.length === 0) completeStage();
+  if (!skipStageClear && enemies.length === 0) completeStage();
 }
 
 function completeStage() {
@@ -1104,6 +1711,68 @@ function closeLeaderboard() {
   ui.leaderboard.classList.add("hidden");
 }
 
+function renderPowerupGuide() {
+  ui.powerupGuideList.replaceChildren(...POWERUP_GUIDE.map((power) => {
+    const entry = document.createElement("article");
+    entry.className = "powerup-guide-entry";
+    entry.style.setProperty("--power-color", `#${power.color.toString(16).padStart(6, "0")}`);
+
+    const icon = document.createElement("span");
+    icon.className = "powerup-guide-icon";
+    icon.textContent = power.icon;
+    icon.setAttribute("aria-hidden", "true");
+
+    const details = document.createElement("div");
+    const name = document.createElement("span");
+    name.className = "powerup-guide-name";
+    name.textContent = power.name;
+    const description = document.createElement("p");
+    description.className = "powerup-guide-description";
+    description.textContent = power.description;
+    details.append(name, description);
+    entry.append(icon, details);
+    return entry;
+  }));
+}
+
+function openPowerups() {
+  renderPowerupGuide();
+  ui.powerups.classList.remove("hidden");
+  ui.powerups.setAttribute("aria-hidden", "false");
+}
+
+function closePowerups() {
+  ui.powerups.classList.add("hidden");
+  ui.powerups.setAttribute("aria-hidden", "true");
+}
+
+function updateMouseButtonSetting() {
+  const moveAndShoot = state.mouseButtonMode === MOUSE_BUTTON_MODES.MOVE_AND_SHOOT;
+  ui.mouseModeMove.setAttribute("aria-pressed", String(moveAndShoot));
+  ui.mouseModeShoot.setAttribute("aria-pressed", String(!moveAndShoot));
+  ui.mouseControlHint.textContent = moveAndShoot ? "HOLD TO MOVE + FIRE" : "CLICK TO FIRE ONLY";
+}
+
+function setMouseButtonMode(mode) {
+  state.mouseButtonMode = mode;
+  updateMouseButtonSetting();
+}
+
+function openSettings() {
+  updateMouseButtonSetting();
+  ui.settings.classList.remove("hidden");
+  ui.settings.setAttribute("aria-hidden", "false");
+  settingsPausedGame = state.mode === "playing";
+  if (settingsPausedGame) togglePause();
+}
+
+function closeSettings() {
+  ui.settings.classList.add("hidden");
+  ui.settings.setAttribute("aria-hidden", "true");
+  if (settingsPausedGame && state.mode === "paused") togglePause();
+  settingsPausedGame = false;
+}
+
 function resetGame() {
   stopMusic();
   musicStep = 0;
@@ -1117,6 +1786,7 @@ function resetGame() {
     stage: 1,
     lives: 3,
     formationTime: 0,
+    singularityPulseTimer: 0,
     powers: Object.fromEntries(Object.keys(POWER_DEFS).map((type) => [type, 0])),
     shake: 0,
   });
@@ -1472,13 +2142,20 @@ function intersects(a, b) {
 }
 
 function updatePlayer(dt) {
+  if (player.userData.destroyed) {
+    player.visible = false;
+    updatePlasmaBeam(dt, false);
+    return;
+  }
   const movingLeft = keys.has("ArrowLeft") || keys.has("KeyA");
   const movingRight = keys.has("ArrowRight") || keys.has("KeyD");
   const movingUp = keys.has("ArrowUp") || keys.has("KeyW");
   const movingDown = keys.has("ArrowDown") || keys.has("KeyS");
   let targetVelocityX = ((movingRight ? 1 : 0) - (movingLeft ? 1 : 0)) * 12;
   let targetVelocityY = ((movingUp ? 1 : 0) - (movingDown ? 1 : 0)) * 10;
-  if (pointerDown) {
+  const mouseMovesShip = state.mouseButtonMode === MOUSE_BUTTON_MODES.MOVE_AND_SHOOT;
+  const pointerMovesShip = pointerDown && (mouseMovesShip || activePointerType !== "mouse");
+  if (pointerMovesShip) {
     const targetX = pointerX * 13.3;
     const targetY = THREE.MathUtils.clamp(pointerY * 11 - 2.5, -10, 4);
     targetVelocityX = THREE.MathUtils.clamp((targetX - player.position.x) * 8, -16, 16);
@@ -1503,6 +2180,15 @@ function updatePlayer(dt) {
     drone.position.y = -0.2 + Math.sin(clock.elapsedTime * 4 + index * Math.PI) * 0.18;
     drone.rotation.z += dt * (index === 0 ? -1.8 : 1.8);
   });
+  updateDecoy(dt);
+  updateReflectorField(dt);
+  if (state.powers.reflector > 0) {
+    player.userData.reflectorTimer -= dt;
+    if (player.userData.reflectorTimer <= 0) {
+      reflectEnemyShots();
+      player.userData.reflectorTimer = 0.82;
+    }
+  }
   player.userData.fireTimer -= dt;
   player.userData.invulnerable -= dt;
   if (player.userData.invulnerable > 0) player.visible = Math.floor(player.userData.invulnerable * 12) % 2 === 0;
@@ -1512,9 +2198,40 @@ function updatePlayer(dt) {
   if (firing) shootPlayer(state.powers.plasma > 0);
 }
 
+function updateSingularity(dt) {
+  if (state.powers.singularity <= 0) return;
+  const centerX = player.position.x;
+  const centerY = THREE.MathUtils.clamp(player.position.y + 4.6, -1, 7.5);
+  const radius = 9.5;
+  const affected = [];
+  for (const enemy of [...enemies]) {
+    if (enemy.userData.respawning) continue;
+    const dx = centerX - enemy.position.x;
+    const dy = centerY - enemy.position.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance >= radius) continue;
+    const pull = 5.8 * (1 - distance / radius);
+    enemy.position.x += dx / (distance || 1) * pull * dt;
+    enemy.position.y += dy / (distance || 1) * pull * dt;
+    affected.push(enemy);
+  }
+
+  state.singularityPulseTimer -= dt;
+  if (state.singularityPulseTimer > 0) return;
+  state.singularityPulseTimer = 0.72;
+  burst({ x: centerX, y: centerY, z: 0 }, POWER_DEFS.singularity.color, 14);
+  for (const enemy of affected) {
+    if (!enemies.includes(enemy)) continue;
+    killEnemy(enemy, {
+      position: enemy.position,
+      userData: { damage: 1 },
+    });
+  }
+}
+
 function updateEnemies(dt) {
   const slow = state.powers.chrono > 0 ? 0.48 : 1;
-  const enemyDt = dt * slow;
+  const enemyDt = state.powers.emp > 0 ? 0 : dt * slow;
   state.formationTime += enemyDt;
   state.enemyFireTimer -= enemyDt;
   const entrance = Math.min(1, state.formationTime / 1.65);
@@ -1580,7 +2297,9 @@ function updateEnemies(dt) {
     }
   }
 
-  if (entrance >= 1 && enemies.length) {
+  updateSingularity(dt);
+
+  if (state.powers.emp <= 0 && entrance >= 1 && enemies.length) {
     if (state.enemyFireTimer <= 0) {
       const candidates = enemies.filter((e) => e.position.y > -3 && !e.userData.respawning);
       if (candidates.length) shootEnemy(candidates[Math.floor(Math.random() * candidates.length)]);
@@ -1626,7 +2345,9 @@ function updateProjectiles(dt) {
     let hit = false;
     for (let j = enemies.length - 1; j >= 0; j--) {
       if (intersects(shot, enemies[j])) {
-        killEnemy(enemies[j], shot);
+        const hitEnemy = enemies[j];
+        killEnemy(hitEnemy, shot);
+        if (state.mode === "playing" && shot.userData.chain) triggerChainLightning(hitEnemy);
         hit = true;
         break;
       }
@@ -1639,7 +2360,25 @@ function updateProjectiles(dt) {
     const shot = enemyShots[i];
     shot.position.x += shot.userData.vx * enemyProjectileDt;
     shot.position.y += shot.userData.vy * enemyProjectileDt;
-    if (intersects(shot, player)) {
+    if (shot.userData.reflected) {
+      let hitEnemy = false;
+      for (let j = enemies.length - 1; j >= 0; j--) {
+        if (!intersects(shot, enemies[j])) continue;
+        burst(shot.position, POWER_DEFS.reflector.color, 8);
+        killEnemy(enemies[j], {
+          position: shot.position,
+          userData: { damage: shot.userData.damage || 2 },
+        });
+        hitEnemy = true;
+        break;
+      }
+      if (hitEnemy || shot.position.y > 14 || shot.position.y < -13 || Math.abs(shot.position.x) > 17) {
+        removeAt(enemyShots, i);
+      }
+    } else if (shot.userData.target === "decoy" && decoy?.visible && intersects(shot, decoy)) {
+      burst(shot.position, POWER_DEFS.decoy.color, 7);
+      removeAt(enemyShots, i);
+    } else if (intersects(shot, player)) {
       hitPlayer();
       removeAt(enemyShots, i);
     } else if (shot.position.y < -13 || Math.abs(shot.position.x) > 17) {
@@ -1707,20 +2446,43 @@ function updatePowerups(dt) {
 function updateParticles(dt) {
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
-    p.userData.life -= dt;
-    p.position.x += p.userData.vx * dt;
-    p.position.y += p.userData.vy * dt;
-    p.position.z += p.userData.vz * dt;
-    p.userData.vx *= Math.pow(0.965, dt * 60);
-    p.userData.vy *= Math.pow(0.965, dt * 60);
-    p.rotation.x += dt * 8;
-    p.material.opacity = Math.max(0, p.userData.life / p.userData.maxLife);
-    if (p.userData.sparkle) {
-      const scale = Math.max(0.05, p.userData.life / p.userData.maxLife);
+    const data = p.userData;
+    data.life -= dt;
+    p.position.x += data.vx * dt;
+    p.position.y += data.vy * dt;
+    p.position.z += data.vz * dt;
+    data.vx *= Math.pow(0.965, dt * 60);
+    data.vy *= Math.pow(0.965, dt * 60);
+    const lifeRatio = Math.max(0, data.life / data.maxLife);
+    const progress = 1 - lifeRatio;
+    let opacity = lifeRatio * (data.opacity ?? 1);
+    if (!data.effect) p.rotation.x += dt * 8;
+    if (data.effect === "shockwave") {
+      const scale = data.startScale + progress * data.maxScale;
+      p.scale.set(scale, scale * (1 + Math.sin(progress * Math.PI) * 0.08), 1);
+      p.rotation.z += dt * data.rotationSpeed;
+      opacity *= 1 - progress * progress;
+    } else if (data.effect === "explosion-flash") {
+      const scale = 0.15 + Math.sin(progress * Math.PI * 0.72) * data.maxScale;
+      p.scale.setScalar(Math.max(0.15, scale));
+      opacity *= Math.pow(lifeRatio, 1.8);
+    } else if (data.effect === "explosion-ray") {
+      p.scale.x = 0.7 + lifeRatio * 0.6;
+      p.scale.y = 0.5 + Math.sin(progress * Math.PI) * 1.8;
+      opacity *= Math.sin(Math.min(1, progress * 2.5) * Math.PI / 2);
+    } else if (data.effect === "explosion-debris") {
+      p.rotation.x += dt * data.spinX;
+      p.rotation.y += dt * data.spinY;
+      p.rotation.z += dt * data.spinZ;
+      data.vy -= dt * 1.8;
+    }
+    p.material.opacity = Math.max(0, opacity);
+    if (data.sparkle) {
+      const scale = Math.max(0.05, lifeRatio);
       p.scale.setScalar(scale);
       p.rotation.z += dt * 11;
     }
-    if (p.userData.life <= 0) removeAt(particles, i);
+    if (data.life <= 0) removeAt(particles, i);
   }
 }
 
@@ -1745,15 +2507,15 @@ function animate() {
   updateBackdrop(dt, elapsed);
   if (state.mode === "playing") {
     updatePlayer(dt);
+    updatePowerups(dt);
     updateEnemies(dt);
     updateProjectiles(dt);
-    updatePowerups(dt);
+    updateScavengerDrones(dt);
     updateParticles(dt);
   } else if (state.mode === "transition") {
     updateTransitionPowerups(dt);
     updateParticles(dt);
   }
-
   if (state.shake > 0) {
     state.shake -= dt;
     camera.position.x = (Math.random() - 0.5) * state.shake;
@@ -1775,6 +2537,7 @@ addEventListener("keyup", (event) => keys.delete(event.code));
 canvas.addEventListener("pointerdown", (event) => {
   if (state.mode !== "playing") return;
   pointerDown = true;
+  activePointerType = event.pointerType;
   pointerX = event.clientX / innerWidth * 2 - 1;
   pointerY = 1 - event.clientY / innerHeight * 2;
   canvas.setPointerCapture(event.pointerId);
@@ -1790,12 +2553,24 @@ ui.startButton.addEventListener("click", resetGame);
 ui.restart.addEventListener("click", resetGame);
 ui.leaderboardButton.addEventListener("click", openLeaderboard);
 ui.gameOverLeaderboardButton.addEventListener("click", openLeaderboard);
+ui.powerupsButton.addEventListener("click", openPowerups);
 ui.leaderboardClose.addEventListener("click", closeLeaderboard);
 ui.leaderboardSignIn.addEventListener("click", requestPortalsLogin);
 ui.leaderboard.addEventListener("click", (event) => {
   if (event.target === ui.leaderboard) closeLeaderboard();
 });
+ui.powerupsClose.addEventListener("click", closePowerups);
+ui.powerups.addEventListener("click", (event) => {
+  if (event.target === ui.powerups) closePowerups();
+});
 ui.pause.addEventListener("click", togglePause);
+ui.settingsToggle.addEventListener("click", openSettings);
+ui.settingsClose.addEventListener("click", closeSettings);
+ui.mouseModeMove.addEventListener("click", () => setMouseButtonMode(MOUSE_BUTTON_MODES.MOVE_AND_SHOOT));
+ui.mouseModeShoot.addEventListener("click", () => setMouseButtonMode(MOUSE_BUTTON_MODES.SHOOT_ONLY));
+ui.settings.addEventListener("click", (event) => {
+  if (event.target === ui.settings) closeSettings();
+});
 ui.sound.addEventListener("click", () => {
   state.sound = !state.sound;
   ui.sound.textContent = `SOUND: ${state.sound ? "ON" : "OFF"}`;
@@ -1819,3 +2594,4 @@ document.addEventListener("visibilitychange", () => {
 });
 
 initializePortals();
+updateMouseButtonSetting();
