@@ -2030,6 +2030,7 @@ function resetGame() {
   syncPowerHud();
   ui.start.classList.remove("visible");
   ui.gameOver.classList.remove("visible");
+  ui.menuToggle.hidden = false;
   ui.pauseControls.hidden = true;
   ui.continueRun.hidden = true;
   ui.quitRun.hidden = true;
@@ -2051,6 +2052,7 @@ function endGame() {
   ui.finalScore.textContent = String(state.score).padStart(6, "0");
   ui.finalStage.textContent = String(Math.max(0, state.stage - (enemies.length ? 1 : 0))).padStart(2, "0");
   ui.gameOver.classList.add("visible");
+  ui.menuToggle.hidden = true;
   ui.pauseControls.hidden = true;
   if (player?.userData.beam) player.userData.beam.visible = false;
   stopMusic();
@@ -2070,7 +2072,7 @@ function togglePause() {
     ui.pauseControls.hidden = false;
     ui.continueRun.hidden = false;
     ui.quitRun.hidden = false;
-    showMessage("SIGNAL SUSPENDED", "PAUSED", "PRESS START OR P TO RESUME");
+    showMessage("SIGNAL SUSPENDED", "PAUSED", "PRESS START OR ESC TO RESUME");
   } else {
     startMusic();
     ui.pauseControls.hidden = true;
@@ -2101,6 +2103,7 @@ function quitRun() {
   ui.pauseControls.hidden = true;
   ui.continueRun.hidden = true;
   ui.quitRun.hidden = true;
+  ui.menuToggle.hidden = true;
   ui.message.classList.remove("visible");
   ui.gameOver.classList.remove("visible");
   ui.start.classList.add("visible");
@@ -2855,7 +2858,10 @@ addEventListener("keydown", (event) => {
   setGamepadNavigationActive(false);
   keys.add(event.code);
   if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"].includes(event.code)) event.preventDefault();
-  if (event.code === "KeyP" && !event.repeat) togglePause();
+  if (event.code === "Escape" && !event.repeat) {
+    event.preventDefault();
+    togglePause();
+  }
 });
 addEventListener("keyup", (event) => keys.delete(event.code));
 addEventListener("gamepadconnected", (event) => {
