@@ -31,9 +31,7 @@
         <div id="power-list"></div>
       </aside>
 
-      <button id="sound-toggle" class="icon-button" aria-label="Toggle sound">SOUND: ON</button>
-      <button id="pause-toggle" class="icon-button" aria-label="Pause game">PAUSE</button>
-      <button id="settings-toggle" class="icon-button" aria-label="Open settings">SETTINGS</button>
+      <button id="menu-toggle" class="icon-button gear-button" type="button" aria-label="Open pause menu">⚙</button>
 
       <section id="start-screen" class="screen visible">
         <div class="sun-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -57,6 +55,32 @@
         <p id="message-kicker" class="kicker">SYSTEM READY</p>
         <h2 id="message-title">STAGE 01</h2>
         <p id="message-copy">THE FIRST WAVE APPROACHES</p>
+        <div id="pause-controls" class="pause-controls" hidden>
+          <div class="volume-controls" aria-label="Volume controls">
+            <label class="volume-row" for="master-volume">
+              <span class="volume-label">MASTER <output id="master-volume-value">100%</output></span>
+              <input id="master-volume" type="range" min="0" max="100" step="1" value="100" />
+            </label>
+            <label class="volume-row" for="sfx-volume">
+              <span class="volume-label">SFX <output id="sfx-volume-value">100%</output></span>
+              <input id="sfx-volume" type="range" min="0" max="100" step="1" value="100" />
+            </label>
+            <label class="volume-row" for="music-volume">
+              <span class="volume-label">MUSIC <output id="music-volume-value">100%</output></span>
+              <input id="music-volume" type="range" min="0" max="100" step="1" value="100" />
+            </label>
+          </div>
+          <div class="setting-row pause-setting-row">
+            <div>
+              <span class="setting-label">MOUSE BUTTON</span>
+              <p class="setting-description">Choose whether the mouse also steers your ship while held.</p>
+            </div>
+            <div class="setting-options" role="group" aria-label="Mouse Button">
+              <button id="mouse-mode-move" class="setting-option" type="button" aria-pressed="true">MOVE AND SHOOT</button>
+              <button id="mouse-mode-shoot" class="setting-option" type="button" aria-pressed="false">SHOOT ONLY</button>
+            </div>
+          </div>
+        </div>
         <button id="continue-run-button" class="primary-button pause-continue-button" type="button" hidden>CONTINUE</button>
         <button id="quit-run-button" class="secondary-button pause-quit-button" type="button" hidden>QUIT RUN</button>
       </section>
@@ -82,24 +106,6 @@
           <p id="leaderboard-status" class="leaderboard-status">CONNECTING TO PORTALS…</p>
           <ol id="leaderboard-list" class="leaderboard-list" tabindex="-1"></ol>
           <button id="leaderboard-sign-in" class="primary-button hidden">SIGN IN TO COMPETE <span>→</span></button>
-        </div>
-      </section>
-
-      <section id="settings-panel" class="settings-panel hidden" aria-label="Settings" aria-hidden="true">
-        <div class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-          <button id="settings-close" class="leaderboard-close" aria-label="Close settings">×</button>
-          <p class="kicker">SYSTEM CONFIGURATION</p>
-          <h3 id="settings-title">SETTINGS</h3>
-          <div class="setting-row">
-            <div>
-              <span class="setting-label">MOUSE BUTTON</span>
-              <p class="setting-description">Choose whether the mouse also steers your ship while held.</p>
-            </div>
-            <div class="setting-options" role="group" aria-label="Mouse Button">
-              <button id="mouse-mode-move" class="setting-option" type="button" aria-pressed="true">MOVE AND SHOOT</button>
-              <button id="mouse-mode-shoot" class="setting-option" type="button" aria-pressed="false">SHOOT ONLY</button>
-            </div>
-          </div>
         </div>
       </section>
 

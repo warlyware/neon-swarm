@@ -12,6 +12,11 @@
 * { box-sizing: border-box; }
 
 html, body, #game-shell {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html, body, #game-shell {
   width: 100%;
   height: 100%;
   margin: 0;
@@ -126,9 +131,19 @@ body { background: #05030d; }
   letter-spacing: .14em;
   cursor: pointer;
 }
-#pause-toggle { right: clamp(105px, calc(4vw + 85px), 149px); }
-#settings-toggle { right: clamp(190px, calc(4vw + 170px), 234px); z-index: 12; }
 .icon-button:hover { color: var(--cyan); }
+.gear-button {
+  right: clamp(20px, 4vw, 64px);
+  bottom: 20px;
+  z-index: 12;
+  padding: 3px;
+  font-size: 25px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow: 0 0 14px currentColor;
+  transition: color .2s, transform .2s, filter .2s;
+}
+.gear-button:hover { transform: rotate(24deg) scale(1.08); }
 
 .screen {
   position: absolute;
@@ -148,6 +163,7 @@ body { background: #05030d; }
 }
 
 .screen.visible { opacity: 1; visibility: visible; transform: scale(1); }
+#message-screen { overflow-y: auto; }
 .kicker { margin: 0 0 14px; color: var(--cyan); font-size: 10px; font-weight: 700; letter-spacing: .42em; }
 h1, h2 {
   margin: 0;
@@ -253,7 +269,7 @@ kbd { margin: 0 2px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); f
 }
 .results strong { color: #fff; font: 700 20px "Orbitron", sans-serif; text-align: right; }
 
-.leaderboard-panel, .settings-panel, .powerups-panel {
+.leaderboard-panel, .powerups-panel {
   position: absolute;
   z-index: 18;
   inset: 0;
@@ -264,8 +280,8 @@ kbd { margin: 0 2px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); f
   backdrop-filter: blur(10px);
   transition: opacity .25s, visibility .25s;
 }
-.leaderboard-panel.hidden, .settings-panel.hidden, .powerups-panel.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
-.leaderboard-card, .settings-card, .powerups-card {
+.leaderboard-panel.hidden, .powerups-panel.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+.leaderboard-card, .powerups-card {
   position: relative;
   width: min(440px, 100%);
   max-height: calc(100vh - 40px);
@@ -279,7 +295,7 @@ kbd { margin: 0 2px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); f
   box-shadow: 0 0 55px rgba(35,232,255,.13), inset 0 0 30px rgba(135,84,255,.08);
   clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
 }
-.leaderboard-card h3, .settings-card h3, .powerups-card h3 {
+.leaderboard-card h3, .powerups-card h3 {
   margin: 0;
   font: 900 clamp(28px, 7vw, 42px) "Orbitron", sans-serif;
   letter-spacing: -.04em;
@@ -328,7 +344,6 @@ kbd { margin: 0 2px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); f
 .leaderboard-score { font: 700 12px "Orbitron", sans-serif; letter-spacing: .08em; }
 .leaderboard-card .primary-button { width: 100%; margin-top: 20px; }
 .leaderboard-card .primary-button.hidden { display: none; }
-.settings-card { width: min(520px, 100%); }
 .setting-row { margin-top: 28px; text-align: left; }
 .setting-label { color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .18em; }
 .setting-description { margin: 9px 0 0; color: rgba(255,255,255,.5); font-size: 11px; line-height: 1.5; }
@@ -351,6 +366,30 @@ kbd { margin: 0 2px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); f
   box-shadow: inset 0 0 18px rgba(35,232,255,.08), 0 0 18px rgba(35,232,255,.12);
 }
 .setting-option.gamepad-focus { box-shadow: inset 0 0 22px rgba(35,232,255,.16), 0 0 24px rgba(35,232,255,.3); }
+.pause-controls {
+  width: min(500px, 100%);
+  margin: 10px 0 2px;
+  text-align: left;
+}
+.volume-controls {
+  display: grid;
+  gap: 12px;
+  padding: 15px 17px;
+  border: 1px solid rgba(35,232,255,.25);
+  background: linear-gradient(135deg, rgba(35,232,255,.07), rgba(255,45,168,.06));
+  box-shadow: inset 0 0 20px rgba(135,84,255,.08);
+}
+.volume-row { display: grid; gap: 7px; color: rgba(255,255,255,.72); font-size: 10px; font-weight: 700; letter-spacing: .16em; }
+.volume-label { display: flex; justify-content: space-between; gap: 16px; }
+.volume-label output { color: var(--cyan); font: 700 11px "Orbitron", sans-serif; letter-spacing: .04em; }
+.volume-row input[type="range"] {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+.volume-row input[type="range"].gamepad-focus { outline: 2px solid var(--cyan); outline-offset: 5px; }
+.pause-setting-row { margin-top: 18px; }
 .powerups-card { width: min(1060px, 100%); }
 .powerup-guide-list {
   display: grid;

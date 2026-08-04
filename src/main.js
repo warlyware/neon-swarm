@@ -36,11 +36,14 @@ const ui = {
   powerups: document.querySelector("#powerups-panel"),
   powerupsClose: document.querySelector("#powerups-close"),
   powerupGuideList: document.querySelector("#powerup-guide-list"),
-  sound: document.querySelector("#sound-toggle"),
-  pause: document.querySelector("#pause-toggle"),
-  settingsToggle: document.querySelector("#settings-toggle"),
-  settings: document.querySelector("#settings-panel"),
-  settingsClose: document.querySelector("#settings-close"),
+  menuToggle: document.querySelector("#menu-toggle"),
+  pauseControls: document.querySelector("#pause-controls"),
+  masterVolume: document.querySelector("#master-volume"),
+  masterVolumeValue: document.querySelector("#master-volume-value"),
+  sfxVolume: document.querySelector("#sfx-volume"),
+  sfxVolumeValue: document.querySelector("#sfx-volume-value"),
+  musicVolume: document.querySelector("#music-volume"),
+  musicVolumeValue: document.querySelector("#music-volume-value"),
   mouseModeMove: document.querySelector("#mouse-mode-move"),
   mouseModeShoot: document.querySelector("#mouse-mode-shoot"),
   mouseControlHint: document.querySelector("#mouse-control-hint"),
@@ -144,11 +147,20 @@ const MOUSE_BUTTON_MODES = {
   SHOOT_ONLY: "shoot-only",
 };
 const GAMEPAD_DEADZONE = 0.16;
+const SINGULARITY_EFFECTIVENESS = 0.5;
+const ENEMY_FIRE_INTERVAL_BASE = 0.84;
+const ENEMY_FIRE_INTERVAL_STAGE_SCALE = 0.02;
+const ENEMY_FIRE_INTERVAL_MIN = 0.34;
+const DECOY_ORBIT_RADIUS = 4.2;
+const DECOY_VERTICAL_OFFSET = 0.8;
+const DECOY_VERTICAL_SWING = 0.55;
 
 const state = {
   mode: "title",
   paused: false,
-  sound: true,
+  masterVolume: 1,
+  sfxVolume: 1,
+  musicVolume: 1,
   mouseButtonMode: MOUSE_BUTTON_MODES.MOVE_AND_SHOOT,
   score: 0,
   stage: 1,
@@ -170,6 +182,8 @@ const particles = [];
 const scavengerDrones = [];
 let player;
 let audio;
+let audioMasterBus;
+let sfxBus;
 let musicBus;
 let musicTimer;
 let musicStep = 0;
@@ -179,7 +193,6 @@ let pointerDown = false;
 let pointerX = 0;
 let pointerY = 0;
 let activePointerType = "mouse";
-let settingsPausedGame = false;
 let decoy = null;
 const gamepadInput = {
   index: null,
@@ -478,8 +491,16 @@ function updateDecoy(dt) {
   }
   const data = decoy.userData;
   data.phase += dt;
-  const targetX = THREE.MathUtils.clamp(player.position.x + Math.sin(data.phase * 2.2) * 2.45, -12.5, 12.5);
-  const targetY = THREE.MathUtils.clamp(player.position.y + 0.45 + Math.cos(data.phase * 1.7) * 0.35, -9.5, 3.6);
+  const targetX = THREE.MathUtils.clamp(
+    player.position.x + Math.sin(data.phase * 2.2) * DECOY_ORBIT_RADIUS,
+    -12.5,
+    12.5
+  );
+  const targetY = THREE.MathUtils.clamp(
+    player.position.y + DECOY_VERTICAL_OFFSET + Math.cos(data.phase * 1.7) * DECOY_VERTICAL_SWING,
+    -9.5,
+    3.6
+  );
   decoy.position.x = THREE.MathUtils.lerp(decoy.position.x, targetX, 1 - Math.exp(-dt * 8));
   decoy.position.y = THREE.MathUtils.lerp(decoy.position.y, targetY, 1 - Math.exp(-dt * 8));
   decoy.rotation.z = Math.sin(data.phase * 2.7) * 0.1;
@@ -642,10 +663,10 @@ function createEnemy(type, row, col) {
   hull.scale.set(...profile.bodyScale);
 
   const hp = {
-    ace: 3 + Math.floor(state.stage / 3),
+    ace: 3 + Math.floor((state.stage - 1) / 6),
     guard: 2,
     scout: 1,
-    bomber: 5 + Math.floor(state.stage / 4),
+    bomber: 5 + Math.floor((state.stage - 1) / 8),
     phantom: 1,
     lancer: 3,
   }[type];
@@ -677,7 +698,10 @@ function createEnemy(type, row, col) {
 function spawnStage() {
   clearEntities();
   state.formationTime = 0;
-  state.enemyFireTimer = Math.max(0.213, 0.769 - state.stage * 0.0385);
+  state.enemyFireTimer = Math.max(
+    ENEMY_FIRE_INTERVAL_MIN,
+    ENEMY_FIRE_INTERVAL_BASE - state.stage * ENEMY_FIRE_INTERVAL_STAGE_SCALE
+  );
   const rows = Math.min(5, 3 + Math.floor(state.stage / 2));
   const cols = Math.min(10, 6 + state.stage);
   const spacingX = Math.min(2.85, 18 / (cols - 1));
@@ -923,13 +947,20 @@ function getGamepadNavigationItems() {
   if (!ui.powerups.classList.contains("hidden")) {
     return [ui.powerupsClose, ...ui.powerupGuideList.children];
   }
-  if (!ui.settings.classList.contains("hidden")) {
-    return [ui.settingsClose, ui.mouseModeMove, ui.mouseModeShoot];
+  if (state.mode === "paused") {
+    return [
+      ui.continueRun,
+      ui.masterVolume,
+      ui.sfxVolume,
+      ui.musicVolume,
+      ui.mouseModeMove,
+      ui.mouseModeShoot,
+      ui.quitRun,
+    ];
   }
   if (state.mode === "title" && ui.start.classList.contains("visible")) {
-    return [ui.startButton, ui.leaderboardButton, ui.powerupsButton, ui.settingsToggle];
+    return [ui.startButton, ui.leaderboardButton, ui.powerupsButton];
   }
-  if (state.mode === "paused") return [ui.continueRun, ui.quitRun];
   if (state.mode === "gameover" && ui.gameOver.classList.contains("visible")) {
     return [ui.restart, ui.gameOverLeaderboardButton];
   }
@@ -939,7 +970,8 @@ function getGamepadNavigationItems() {
 function getGamepadNavigationDirection(dt) {
   const verticalDirection = gamepadInput.moveY < -0.55 ? -1 : gamepadInput.moveY > 0.55 ? 1 : 0;
   const horizontalDirection = gamepadInput.moveX < -0.55 ? -1 : gamepadInput.moveX > 0.55 ? 1 : 0;
-  const direction = !ui.settings.classList.contains("hidden") && horizontalDirection !== 0
+  const focusedVolume = gamepadNavigation.focus?.matches("input[type=range]");
+  const direction = focusedVolume && horizontalDirection !== 0
     ? horizontalDirection
     : verticalDirection;
   if (direction === 0) {
@@ -985,15 +1017,24 @@ function restoreGamepadFocus() {
   setGamepadFocus(returnFocus);
 }
 
+function adjustFocusedGamepadVolume(dt) {
+  const slider = gamepadNavigation.focus;
+  if (!slider?.matches("input[type=range]") || Math.abs(gamepadInput.moveX) <= 0.55) return false;
+  const direction = getGamepadNavigationDirection(dt);
+  if (direction) {
+    slider.value = String(THREE.MathUtils.clamp(Number(slider.value) + direction * 5, 0, 100));
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  return true;
+}
+
 function handleGamepadMenus(dt) {
   if (!gamepadInput.active) return;
-  updateGamepadFocus(dt);
+  if (!adjustFocusedGamepadVolume(dt)) updateGamepadFocus(dt);
   const panelOpen = !ui.leaderboard.classList.contains("hidden")
-    || !ui.powerups.classList.contains("hidden")
-    || !ui.settings.classList.contains("hidden");
+    || !ui.powerups.classList.contains("hidden");
   if (gamepadInput.cancelPressed) {
-    if (!ui.settings.classList.contains("hidden")) closeSettings();
-    else if (!ui.powerups.classList.contains("hidden")) closePowerups();
+    if (!ui.powerups.classList.contains("hidden")) closePowerups();
     else if (!ui.leaderboard.classList.contains("hidden")) closeLeaderboard();
     return;
   }
@@ -1427,8 +1468,8 @@ function activatePowerup(p) {
   if (type === "decoy") {
     if (!decoy) decoy = createHologramDecoy();
     decoy.position.copy(player.position);
-    decoy.position.x = THREE.MathUtils.clamp(player.position.x + 2.4, -12.5, 12.5);
-    decoy.position.y += 0.45;
+    decoy.position.x = THREE.MathUtils.clamp(player.position.x + DECOY_ORBIT_RADIUS, -12.5, 12.5);
+    decoy.position.y += DECOY_VERTICAL_OFFSET;
     decoy.visible = true;
   }
   if (type === "reflector") player.userData.reflectorTimer = 0;
@@ -1968,27 +2009,6 @@ function setMouseButtonMode(mode) {
   updateMouseButtonSetting();
 }
 
-function openSettings() {
-  if (gamepadInput.active) {
-    gamepadNavigation.returnFocus = gamepadNavigation.focus;
-    gamepadNavigation.index = 0;
-    clearGamepadFocus();
-  }
-  updateMouseButtonSetting();
-  ui.settings.classList.remove("hidden");
-  ui.settings.setAttribute("aria-hidden", "false");
-  settingsPausedGame = state.mode === "playing";
-  if (settingsPausedGame) togglePause();
-}
-
-function closeSettings() {
-  ui.settings.classList.add("hidden");
-  ui.settings.setAttribute("aria-hidden", "true");
-  if (settingsPausedGame && state.mode === "paused") togglePause();
-  settingsPausedGame = false;
-  if (gamepadInput.active) restoreGamepadFocus();
-}
-
 function resetGame() {
   stopMusic();
   musicStep = 0;
@@ -2010,9 +2030,9 @@ function resetGame() {
   syncPowerHud();
   ui.start.classList.remove("visible");
   ui.gameOver.classList.remove("visible");
+  ui.pauseControls.hidden = true;
   ui.continueRun.hidden = true;
   ui.quitRun.hidden = true;
-  ui.pause.textContent = "PAUSE";
   updateHud();
   initAudio();
   startMusic();
@@ -2031,6 +2051,7 @@ function endGame() {
   ui.finalScore.textContent = String(state.score).padStart(6, "0");
   ui.finalStage.textContent = String(Math.max(0, state.stage - (enemies.length ? 1 : 0))).padStart(2, "0");
   ui.gameOver.classList.add("visible");
+  ui.pauseControls.hidden = true;
   if (player?.userData.beam) player.userData.beam.visible = false;
   stopMusic();
   sfx("gameover");
@@ -2041,15 +2062,18 @@ function togglePause() {
   if (!["playing", "paused"].includes(state.mode)) return;
   state.paused = !state.paused;
   state.mode = state.paused ? "paused" : "playing";
-  ui.pause.textContent = state.paused ? "RESUME" : "PAUSE";
   if (state.paused) {
     if (player?.userData.beam) player.userData.beam.visible = false;
     stopMusic();
+    updateMouseButtonSetting();
+    updateVolumeControls();
+    ui.pauseControls.hidden = false;
     ui.continueRun.hidden = false;
     ui.quitRun.hidden = false;
     showMessage("SIGNAL SUSPENDED", "PAUSED", "PRESS START OR P TO RESUME");
   } else {
     startMusic();
+    ui.pauseControls.hidden = true;
     ui.continueRun.hidden = true;
     ui.quitRun.hidden = true;
     ui.message.classList.remove("visible");
@@ -2074,9 +2098,9 @@ function quitRun() {
     powers: Object.fromEntries(Object.keys(POWER_DEFS).map((type) => [type, 0])),
     shake: 0,
   });
+  ui.pauseControls.hidden = true;
   ui.continueRun.hidden = true;
   ui.quitRun.hidden = true;
-  ui.pause.textContent = "PAUSE";
   ui.message.classList.remove("visible");
   ui.gameOver.classList.remove("visible");
   ui.start.classList.add("visible");
@@ -2090,8 +2114,46 @@ function flash() {
   ui.flash.classList.add("active");
 }
 
+function updateVolumeControls() {
+  const controls = [
+    [ui.masterVolume, ui.masterVolumeValue, state.masterVolume],
+    [ui.sfxVolume, ui.sfxVolumeValue, state.sfxVolume],
+    [ui.musicVolume, ui.musicVolumeValue, state.musicVolume],
+  ];
+  for (const [input, output, value] of controls) {
+    const percentage = Math.round(value * 100);
+    input.value = String(percentage);
+    output.value = `${percentage}%`;
+    output.textContent = `${percentage}%`;
+  }
+}
+
+function applyAudioVolumes() {
+  if (!audio) return;
+  const now = audio.currentTime;
+  audioMasterBus?.gain.setTargetAtTime(state.masterVolume, now, 0.015);
+  sfxBus?.gain.setTargetAtTime(state.sfxVolume, now, 0.015);
+  musicBus?.gain.setTargetAtTime(0.42 * state.musicVolume, now, 0.015);
+}
+
+function setAudioVolume(key, value) {
+  state[key] = THREE.MathUtils.clamp(Number(value) / 100, 0, 1);
+  updateVolumeControls();
+  applyAudioVolumes();
+  if (key !== "musicVolume") return;
+  if (state.musicVolume <= 0) stopMusic();
+  else if (!musicTimer && ["playing", "transition"].includes(state.mode)) startMusic();
+}
+
 function initAudio() {
-  if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+  if (!audio) {
+    audio = new (window.AudioContext || window.webkitAudioContext)();
+    audioMasterBus = audio.createGain();
+    sfxBus = audio.createGain();
+    sfxBus.connect(audioMasterBus);
+    audioMasterBus.connect(audio.destination);
+  }
+  applyAudioVolumes();
   if (audio.state === "suspended") audio.resume();
 }
 
@@ -2271,16 +2333,16 @@ function scheduleAssaultMusicStep(step, time) {
 }
 
 function startMusic() {
-  if (!state.sound || musicTimer || !["playing", "transition"].includes(state.mode)) return;
+  if (state.musicVolume <= 0 || musicTimer || !["playing", "transition"].includes(state.mode)) return;
   initAudio();
   musicBus = audio.createGain();
   const compressor = audio.createDynamicsCompressor();
-  musicBus.gain.setValueAtTime(0.42, audio.currentTime);
+  musicBus.gain.setValueAtTime(0.42 * state.musicVolume, audio.currentTime);
   compressor.threshold.setValueAtTime(-22, audio.currentTime);
   compressor.knee.setValueAtTime(18, audio.currentTime);
   compressor.ratio.setValueAtTime(4, audio.currentTime);
   musicBus.connect(compressor);
-  compressor.connect(audio.destination);
+  compressor.connect(audioMasterBus);
   nextMusicTime = audio.currentTime + 0.06;
   musicTimer = window.setInterval(() => {
     while (nextMusicTime < audio.currentTime + 0.12) {
@@ -2313,7 +2375,8 @@ function stopMusic() {
 }
 
 function sfx(kind) {
-  if (!state.sound || !audio) return;
+  if (!audio) initAudio();
+  if (!audio || state.masterVolume <= 0 || state.sfxVolume <= 0) return;
   if (kind === "gameover") {
     const now = audio.currentTime + 0.04;
     const notes = [392, 329.63, 261.63, 196];
@@ -2335,7 +2398,7 @@ function sfx(kind) {
       gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
       oscillator.connect(filter);
       filter.connect(gain);
-      gain.connect(audio.destination);
+      gain.connect(sfxBus);
       oscillator.start(start);
       oscillator.stop(start + duration + 0.03);
     });
@@ -2352,7 +2415,7 @@ function sfx(kind) {
       gain.gain.exponentialRampToValueAtTime(index === 3 ? 0.01875 : 0.024, now + index * 0.085 + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.085 + 0.2);
       oscillator.connect(gain);
-      gain.connect(audio.destination);
+      gain.connect(sfxBus);
       oscillator.start(now + index * 0.085);
       oscillator.stop(now + index * 0.085 + 0.22);
     });
@@ -2361,7 +2424,7 @@ function sfx(kind) {
   const osc = audio.createOscillator();
   const gain = audio.createGain();
   osc.connect(gain);
-  gain.connect(audio.destination);
+  gain.connect(sfxBus);
   const now = audio.currentTime;
   const settings = {
     shoot: [440, 210, 0.06, "sawtooth", 0.0165],
@@ -2464,7 +2527,7 @@ function updateSingularity(dt) {
     const dy = centerY - enemy.position.y;
     const distance = Math.hypot(dx, dy);
     if (distance >= radius) continue;
-    const pull = 5.8 * (1 - distance / radius);
+    const pull = 5.8 * SINGULARITY_EFFECTIVENESS * (1 - distance / radius);
     enemy.position.x += dx / (distance || 1) * pull * dt;
     enemy.position.y += dy / (distance || 1) * pull * dt;
     affected.push(enemy);
@@ -2478,7 +2541,7 @@ function updateSingularity(dt) {
     if (!enemies.includes(enemy)) continue;
     killEnemy(enemy, {
       position: enemy.position,
-      userData: { damage: 1 },
+      userData: { damage: SINGULARITY_EFFECTIVENESS },
     });
   }
 }
@@ -2557,7 +2620,11 @@ function updateEnemies(dt) {
     if (state.enemyFireTimer <= 0) {
       const candidates = enemies.filter((e) => e.position.y > -3 && !e.userData.respawning);
       if (candidates.length) shootEnemy(candidates[Math.floor(Math.random() * candidates.length)]);
-      state.enemyFireTimer = Math.max(0.165, 0.724 - state.stage * 0.0356) * (0.72 + Math.random() * 0.7);
+      const fireInterval = ENEMY_FIRE_INTERVAL_BASE - state.stage * ENEMY_FIRE_INTERVAL_STAGE_SCALE;
+      state.enemyFireTimer = Math.max(
+        ENEMY_FIRE_INTERVAL_MIN,
+        fireInterval * (0.86 + Math.random() * 0.38)
+      );
     }
     const diving = enemies.filter((e) => e.userData.diving).length;
     const maxDivers = Math.min(4, 1 + Math.floor(state.stage / 3));
@@ -2805,6 +2872,8 @@ addEventListener("gamepaddisconnected", (event) => {
   setGamepadNavigationActive(false);
 });
 addEventListener("pointerdown", () => setGamepadNavigationActive(false));
+addEventListener("contextmenu", (event) => event.preventDefault());
+addEventListener("selectstart", (event) => event.preventDefault());
 canvas.addEventListener("pointerdown", (event) => {
   if (state.mode !== "playing") return;
   pointerDown = true;
@@ -2834,26 +2903,14 @@ ui.powerupsClose.addEventListener("click", closePowerups);
 ui.powerups.addEventListener("click", (event) => {
   if (event.target === ui.powerups) closePowerups();
 });
-ui.pause.addEventListener("click", togglePause);
+ui.menuToggle.addEventListener("click", togglePause);
 ui.continueRun.addEventListener("click", togglePause);
 ui.quitRun.addEventListener("click", quitRun);
-ui.settingsToggle.addEventListener("click", openSettings);
-ui.settingsClose.addEventListener("click", closeSettings);
 ui.mouseModeMove.addEventListener("click", () => setMouseButtonMode(MOUSE_BUTTON_MODES.MOVE_AND_SHOOT));
 ui.mouseModeShoot.addEventListener("click", () => setMouseButtonMode(MOUSE_BUTTON_MODES.SHOOT_ONLY));
-ui.settings.addEventListener("click", (event) => {
-  if (event.target === ui.settings) closeSettings();
-});
-ui.sound.addEventListener("click", () => {
-  state.sound = !state.sound;
-  ui.sound.textContent = `SOUND: ${state.sound ? "ON" : "OFF"}`;
-  if (state.sound) {
-    initAudio();
-    startMusic();
-  } else {
-    stopMusic();
-  }
-});
+ui.masterVolume.addEventListener("input", (event) => setAudioVolume("masterVolume", event.target.value));
+ui.sfxVolume.addEventListener("input", (event) => setAudioVolume("sfxVolume", event.target.value));
+ui.musicVolume.addEventListener("input", (event) => setAudioVolume("musicVolume", event.target.value));
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -2868,6 +2925,7 @@ document.addEventListener("visibilitychange", () => {
 
 initializePortals();
 updateMouseButtonSetting();
+updateVolumeControls();
 
 const fontsReady = document.fonts?.ready ?? Promise.resolve();
 fontsReady.then(() => document.documentElement.classList.add("app-ready"));
