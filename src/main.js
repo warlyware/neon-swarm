@@ -1801,6 +1801,7 @@ function killEnemy(enemy, shot, {
 }
 
 function completeStage() {
+  if (state.mode !== "playing") return;
   state.mode = "transition";
   if (player?.userData.beam) player.userData.beam.visible = false;
   beginPowerupTransitionFade();
@@ -2612,6 +2613,7 @@ function updateEnemies(dt) {
         burst(enemy.position, COLORS.pink, 18);
         world.remove(enemy);
         enemies.splice(enemies.indexOf(enemy), 1);
+        if (state.mode === "playing" && state.lives > 0 && enemies.length === 0) completeStage();
         break;
       }
     }
